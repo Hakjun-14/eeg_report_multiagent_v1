@@ -108,3 +108,6 @@ Reason: `atomic_claim_plan.json` and `inference_trace.report_synthesis.atomic_cl
 
 - Run localization v2 + atomic claim planning over selected50 as a local-tool validation batch.
 Reason: selected50 is a fixed case subset, while `32 passed` refers only to unit tests. The selected50 batch `batch_s0001_test_localization_v2_atomic_claim_selected50` completed 50/50 rows with no errors, invoked `event_peak_topography_localizer` in all rows, and wrote `atomic_claim_plan.json` in all row artifacts.
+
+- Treat localization v2 as provenance/debug evidence until stricter surface gating is added.
+Reason: selected50 GT-reference audit showed v2 produces a localization proxy for all rows and current report synthesis surfaces localization language in all 50 rows. Against refined GT abnormal-localization slots, 24/50 rows had a GT localization mention, but 16 rows had GT absence and 10 rows had no abnormal-localization mention. This means v2 is useful for topographic provenance, but report-surface localization should require event/morphology support or remain debug-only.
