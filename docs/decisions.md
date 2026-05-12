@@ -111,3 +111,6 @@ Reason: selected50 is a fixed case subset, while `32 passed` refers only to unit
 
 - Treat localization v2 as provenance/debug evidence until stricter surface gating is added.
 Reason: selected50 GT-reference audit showed v2 produces a localization proxy for all rows and current report synthesis surfaces localization language in all 50 rows. Against refined GT abnormal-localization slots, 24/50 rows had a GT localization mention, but 16 rows had GT absence and 10 rows had no abnormal-localization mention. This means v2 is useful for topographic provenance, but report-surface localization should require event/morphology support or remain debug-only.
+
+- Gate localization v2 report-surface text by section role and multi-proxy event support.
+Reason: localization should not be surfaced from generic detail sections or from peak topography alone. The updated claim gate keeps `event_peak_localization` debug-only by default and allows surface text only in epileptiform/events sections when candidate burden, peak-field concentration, epileptiform likelihood, and morphology support are jointly present. Re-rendering selected50 reduced localization surface mentions from 50/50 to 5/50, reduced unsupported GT-not-mentioned surface cases from 10 to 0, and reduced GT-absent false-positive surface cases from 16 to 2.

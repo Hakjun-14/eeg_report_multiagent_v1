@@ -107,7 +107,7 @@ class ReportSynthesizer:
         for finding in board.findings:
             measurement = self._first_measurement(finding, measurement_index)
             required, missing = self._claim_evidence_requirements(finding, measurement)
-            action = self._claim_surface_action(finding, measurement, missing)
+            action = self._claim_surface_action(board, finding, measurement, missing)
             proposed_text = self._detail_sentence(finding, measurement, review_notes.get(finding.finding_id, []))
             if action == ClaimSurfaceAction.CAVEAT and "candidate" not in proposed_text.lower():
                 proposed_text = proposed_text.rstrip(".") + "; this is retained as a provenance-supported candidate."
@@ -325,6 +325,7 @@ class ReportSynthesizer:
 
     def _claim_surface_action(
         self,
+        board: EvidenceBoard,
         finding: FindingObject,
         measurement: MeasurementValue | None,
         missing_evidence: List[str],
@@ -342,12 +343,46 @@ class ReportSynthesizer:
         if finding.assertion == StatusSemantic.UNKNOWN:
             return ClaimSurfaceAction.BLOCK
         if finding.finding_type == "event_peak_localization":
-            return ClaimSurfaceAction.CAVEAT
+            return ClaimSurfaceAction.DEBUG_ONLY
         if finding.finding_type in self.DEBUG_SURFACE_FINDING_TYPES:
             return ClaimSurfaceAction.DEBUG_ONLY
         if missing_evidence and finding.finding_type in {"background_pdr_frequency", "event_morphology_class"}:
             return ClaimSurfaceAction.CAVEAT
         return ClaimSurfaceAction.ALLOW
+
+    def _event_localization_surface_allowed(
+        self,
+        board: EvidenceBoard,
+        measurement_index: dict[str, MeasurementValue],
+        section_role: SectionRole,
+    ) -> bool:
+        """Decide whether peak-localization proxy may appear in clinical prose.
+
+        Localization v2 is always preserved in provenance. It reaches report
+        text only for event/epileptiform sections and only when multiple local
+        signal proxies jointly support event-like abnormality.
+        """
+        if section_role not in {SectionRole.EPILEPTIFORM, SectionRole.EVENTS_SEIZURES}:
+            return False
+        label = self._categorical_for_type(board, "event_peak_localization")
+        if not label or label == "unknown":
+            return False
+
+        burden = self._exact(self._measurement_for_type(board, "epileptiform_event_candidate_burden", measurement_index))
+        peak_field = self._exact(self._measurement_for_type(board, "event_peak_field_support", measurement_index))
+        epileptiform_like = self._exact(self._measurement_for_type(board, "epileptiform_candidate_likelihood", measurement_index))
+        morphology_support = self._exact(self._measurement_for_type(board, "event_morphology_support", measurement_index))
+        morphology_class = self._categorical_for_type(board, "event_morphology_class")
+
+        burden_ok = burden is not None and burden >= 0.05
+        field_ok = peak_field is not None and peak_field >= 2.0
+        likelihood_ok = epileptiform_like is not None and epileptiform_like >= 0.70
+        morphology_ok = (
+            morphology_class in {"sharp_transient_candidate", "nonspecific_transient_candidate"}
+            and morphology_support is not None
+            and morphology_support >= 1.0
+        )
+        return burden_ok and field_ok and likelihood_ok and morphology_ok
 
     def _claim_plan_rationale(
         self,
@@ -606,7 +641,11 @@ class ReportSynthesizer:
                 sentences.append("The candidate distribution showed a left-leaning laterality index.")
             else:
                 sentences.append("The candidate distribution showed a right-leaning laterality index.")
-        if localization_label and localization_label != "unknown":
+        if (
+            localization_label
+            and localization_label != "unknown"
+            and self._event_localization_surface_allowed(board, measurement_index, section_role)
+        ):
             sentences.append(
                 f"A peak-centered localization screen suggested {localization_label.replace('_', ' ')} involvement; this requires event waveform and channel-level review before clinical localization is claimed."
             )
@@ -640,7 +679,7 @@ class ReportSynthesizer:
         findings = self._findings_by_type(board)
         sections = [
             self._background_section_text(board, measurement_index, review_notes),
-            self._event_section_text(board, measurement_index, review_notes, SectionRole.EVENTS_SEIZURES),
+            self._event_section_text(board, measurement_index, review_notes, SectionRole.DETAIL),
             self._protocol_sentence(findings),
         ]
         missing = self._review_impression_constraints(board)
