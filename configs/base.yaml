@@ -1,0 +1,22 @@
+runtime:
+  sample_rate_hz: 200
+  window_seconds: 10
+  channel_count: 22
+  use_langgraph: true
+
+processing:
+  two_pass:
+    enabled: true
+    scout:
+      event_percentile_threshold: 0.9
+    focused:
+      neighbor_radius_windows: 1
+
+status_semantics:
+  allowed:
+    - present
+    - absent
+    - not_observed
+    - not_performed
+    - no_response
+    - unknown

@@ -1,0 +1,64 @@
+version: 0.1
+purpose: Claim-level gates for generated EEG report prose. Applies to all model outputs during evaluation and to OURS during report synthesis.
+
+claim_gates:
+  pdr_claim:
+    allow_if_all:
+      - posterior_or_occipital_predominance
+      - alpha_range_frequency
+    caution_if_missing:
+      - awake_or_resting_state_when_available
+      - symmetry
+      - reactivity
+    block_if_any:
+      - only_global_dominant_frequency
+      - boundary_frequency_peak
+    blocked_wording: A reliable PDR was not directly quantified from the available structured evidence.
+
+  definite_epileptiform_claim:
+    allow_if_all:
+      - morphology_specific_evidence
+      - spatial_field_or_distribution
+    caution_if_missing:
+      - amplitude
+      - duration
+      - state_dependence
+    block_if_any:
+      - candidate_burden_only
+      - morphology_absent
+      - artifact_or_sleep_mimic_not_excluded_when_required
+    blocked_wording: Transient candidates were detected, but definite epileptiform discharges are not claimed from the current structured evidence.
+
+  seizure_claim:
+    allow_if_any:
+      - electrographic_evolution_duration_criteria
+      - time_locked_clinical_correlate
+    block_if_any:
+      - transient_candidate_only
+      - no_seizure_specific_evidence
+    blocked_wording: No electrographic seizures are confirmed by the available evidence.
+
+  photic_claim:
+    allow_if_all:
+      - photic_performed
+      - photic_response_status_available
+    block_if_any:
+      - photic_status_unknown
+    blocked_wording: Photic stimulation status or response was not recoverable from the provided structured evidence.
+
+  hyperventilation_claim:
+    allow_if_all:
+      - hyperventilation_status_available
+    caution_if_missing:
+      - effort_quality
+      - induced_slowing_or_activation_effect
+    block_if_any:
+      - hyperventilation_status_unknown
+    blocked_wording: Hyperventilation status or effect was not recoverable from the provided structured evidence.
+
+  debug_score_surface_claim:
+    block_if_any:
+      - contains_internal_score
+      - contains_proxy_ratio
+      - contains_candidate_burden_without_clinical_translation
+    action: move_to_debug_only

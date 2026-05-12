@@ -1,0 +1,158 @@
+version: 0.1
+purpose: General clinical EEG slot schema for provenance-aware evaluation. Do not encode method-specific expected failures here.
+
+slot_groups:
+  background_activity:
+    slots:
+      pdr_frequency:
+        required_evidence:
+          - posterior_or_occipital_predominance
+          - alpha_range_frequency
+          - awake_or_resting_state_when_available
+        nullable: true
+        severity_if_wrong: major
+      pdr_symmetry:
+        required_evidence:
+          - bilateral_posterior_channel_comparison
+        nullable: true
+        severity_if_wrong: moderate
+      pdr_reactivity:
+        required_evidence:
+          - eye_opening_or_reactivity_protocol
+        nullable: true
+        severity_if_wrong: moderate
+      anterior_posterior_organization:
+        required_evidence:
+          - anterior_posterior_gradient_or_organization_measure
+        nullable: true
+        severity_if_wrong: moderate
+      background_slowing:
+        required_evidence:
+          - frequency_or_bandpower_support
+          - distribution_label
+        nullable: true
+        severity_if_wrong: major
+      excess_beta:
+        required_evidence:
+          - beta_power_or_beta_ratio_support
+          - medication_or_context_optional
+        nullable: true
+        severity_if_wrong: moderate
+
+  state_sleep:
+    slots:
+      awake_state:
+        required_evidence:
+          - metadata_or_signal_state_label
+        nullable: true
+        severity_if_wrong: moderate
+      drowsiness:
+        required_evidence:
+          - state_label_or_drowsy_features
+        nullable: true
+        severity_if_wrong: moderate
+      sleep_architecture:
+        required_evidence:
+          - vertex_waves_or_spindles_or_k_complexes
+        nullable: true
+        severity_if_wrong: major
+
+  epileptiform_interictal:
+    slots:
+      morphology:
+        required_evidence:
+          - spike_or_sharp_or_spike_wave_classifier
+          - artifact_or_sleep_mimic_exclusion_when_possible
+        nullable: true
+        severity_if_wrong: critical
+      frequency:
+        required_evidence:
+          - rhythmic_or_periodic_frequency_measurement
+        nullable: true
+        severity_if_wrong: major
+      amplitude:
+        required_evidence:
+          - amplitude_measurement_with_channel_or_region
+        nullable: true
+        severity_if_wrong: moderate
+      burst_duration:
+        required_evidence:
+          - start_end_time_or_duration_measurement
+        nullable: true
+        severity_if_wrong: major
+      localization_laterality:
+        required_evidence:
+          - channel_field_or_region_mapping
+        nullable: true
+        severity_if_wrong: major
+      state_dependence:
+        required_evidence:
+          - state_label_at_event_windows
+        nullable: true
+        severity_if_wrong: moderate
+
+  events_seizures:
+    slots:
+      electrographic_seizure_present:
+        required_evidence:
+          - seizure_specific_evolution_or_frequency_duration_criteria
+        nullable: false
+        severity_if_wrong: critical
+      seizure_absence:
+        required_evidence:
+          - reviewed_coverage_or_detector_absence_with_scope
+        nullable: true
+        severity_if_wrong: critical
+      push_button_event:
+        required_evidence:
+          - event_annotation_or_metadata
+        nullable: true
+        severity_if_wrong: major
+      behavioral_correlate:
+        required_evidence:
+          - video_or_clinical_event_annotation
+        nullable: true
+        severity_if_wrong: major
+
+  activation_protocols:
+    slots:
+      photic_status:
+        required_evidence:
+          - protocol_metadata_or_report_context
+        nullable: true
+        severity_if_wrong: moderate
+      photic_driving_response:
+        required_evidence:
+          - photic_performed
+          - response_measure_or_reference_status
+        nullable: true
+        severity_if_wrong: moderate
+      hyperventilation_status:
+        required_evidence:
+          - protocol_metadata_or_report_context
+        nullable: true
+        severity_if_wrong: moderate
+      hyperventilation_effect:
+        required_evidence:
+          - hyperventilation_performed
+          - slowing_or_activation_effect_measure
+        nullable: true
+        severity_if_wrong: major
+
+  report_integrity:
+    slots:
+      section_appropriateness:
+        required_evidence:
+          - target_section_contract
+        nullable: false
+        severity_if_wrong: moderate
+      uncertainty_preservation:
+        required_evidence:
+          - uncertainty_marker_or_confidence_constraint
+        nullable: true
+        severity_if_wrong: major
+      debug_surface_separation:
+        required_evidence:
+          - no_internal_scores_in_clinical_text
+        nullable: false
+        severity_if_wrong: moderate

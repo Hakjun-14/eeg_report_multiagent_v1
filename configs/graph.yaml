@@ -1,0 +1,12 @@
+graph:
+  nodes:
+    - load_inputs
+    - scout_pass
+    - background_module
+    - event_module
+    - protocol_parser
+    - evidence_merge
+    - report_synthesize
+    - optional_verify
+    - finalize
+  optional_verifier: true

@@ -1,0 +1,30 @@
+.env
+.env.*
+!.env.example
+
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+.venv/
+venv/
+build/
+dist/
+*.egg-info/
+
+artifacts/
+*.log
+
+# Large/local EEG data should stay outside the repo.
+eeg_data/
+matched_eeg_recordings_report/
+processed_eeg/
+*.edf
+*.pkl
+
+# OS/editor noise
+.DS_Store
+.idea/
+.vscode/

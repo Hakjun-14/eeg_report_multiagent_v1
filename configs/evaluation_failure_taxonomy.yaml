@@ -1,0 +1,46 @@
+version: 0.1
+purpose: Shared failure taxonomy for GT-vs-generated EEG report evaluation. Applies to CELM and OURS variants.
+
+decision_labels:
+  supported_present: Claim matches reference and adequate evidence is available.
+  supported_absent: Absence claim is correct and absence evidence is available.
+  unsupported: Claim lacks support from reference or available evidence.
+  contradicted: Claim conflicts with reference or available evidence.
+  under_specified: Claim is plausible but lacks required detail.
+  over_cautious_false_negative: Model downgrades a clinically important reference finding to vague candidate language or omission.
+  section_contaminated: Claim appears in the wrong report section or mixes section semantics.
+  debug_leakage: Internal detector/proxy score appears in clinical prose.
+  possible_leakage_or_memorization: Output nearly copies reference text, masked tokens, or unusual formatting.
+  needs_human_adjudication: Cannot be resolved from available text/evidence.
+
+severity_grades:
+  critical: Could materially alter seizure diagnosis, treatment urgency, or normal/abnormal impression.
+  major: Important localization, morphology, state, or activation error.
+  moderate: Missing quantitation, protocol status, uncertainty, or section hygiene issue.
+  minor: Style/concision issue with limited clinical impact.
+  debug_only: Internal provenance issue not intended for clinical surface text.
+
+metric_clinical_mismatch_flags:
+  high_metric_critical_omission: High text metric but missed key clinical finding.
+  low_metric_clinically_safer: Low text metric but avoids unsupported dangerous claims.
+  exact_match_leakage_risk: Near-perfect generated/reference match requiring leakage audit.
+  semantic_metric_insensitive_to_numeric: BERTScore/semantic metric high despite wrong/missing frequency, amplitude, duration, or localization.
+  verbose_debug_overlap: Long generated output has surface overlap but poor report style.
+
+model_specific_observed_patterns:
+  celm_selected50_observed:
+    - critical_finding_omission
+    - section_contamination
+    - protocol_inversion
+    - seizure_language_without_hard_constraints
+    - possible_leakage_or_memorization_when_exact_or_near_exact
+  ours_selected50_observed:
+    - pdr_recovery_failure
+    - overuse_of_low_frequency_or_proxy_features
+    - morphology_specific_event_detection_gap
+    - localization_normalization_gap
+    - state_protocol_missingness
+    - over_cautious_false_negative
+    - debug_score_or_proxy_surface_leakage
+    - clinical_style_mismatch
+    - numeric_provenance_instability

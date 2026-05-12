@@ -1,0 +1,66 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "eeg-report-multiagent"
+version = "0.1.0"
+description = "Minimal task-specific multi-agent EEG report architecture (LangGraph + local signal tools)."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+  { name = "EEG Report Multiagent Team" }
+]
+dependencies = [
+  "numpy>=1.24",
+  "scipy>=1.10",
+  "pydantic>=2.6",
+  "PyYAML>=6.0",
+  "langgraph>=0.2",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+]
+eval = [
+  "pandas>=2.0",
+  "evaluate>=0.4",
+  "rouge-score>=0.1.2",
+  "nltk>=3.8",
+  "absl-py>=1.0",
+  "sacrebleu>=2.0",
+]
+bertscore = [
+  "bert-score>=0.3.13",
+]
+
+[project.scripts]
+eeg-run-session = "eeg_report_multiagent.cli.run_session:main"
+eeg-inspect-data = "eeg_report_multiagent.cli.inspect_data:main"
+eeg-run-smoke-session = "eeg_report_multiagent.cli.run_smoke_session:main"
+eeg-compare-report-local = "eeg_report_multiagent.cli.compare_report_local:main"
+eeg-inspect-celm-split = "eeg_report_multiagent.cli.inspect_celm_split:main"
+eeg-run-celm-split-session = "eeg_report_multiagent.cli.run_celm_split_session:main"
+eeg-run-celm-split-batch = "eeg_report_multiagent.cli.run_celm_split_batch:main"
+eeg-audit-method-run = "eeg_report_multiagent.cli.audit_method_run:main"
+eeg-build-experiment-ledger = "eeg_report_multiagent.cli.build_experiment_ledger:main"
+eeg-select-ledger-subset = "eeg_report_multiagent.cli.select_ledger_subset:main"
+eeg-evaluate-celm-style = "eeg_report_multiagent.cli.evaluate_celm_style:main"
+eeg-refresh-celm-section-reports = "eeg_report_multiagent.cli.refresh_celm_section_reports:main"
+eeg-run-d-synthesis-batch = "eeg_report_multiagent.cli.run_d_synthesis_batch:main"
+eeg-compare-variant-scores = "eeg_report_multiagent.cli.compare_variant_scores:main"
+eeg-audit-section-contracts = "eeg_report_multiagent.cli.audit_section_contracts:main"
+eeg-run-clinical-provenance-audit = "eeg_report_multiagent.cli.run_clinical_provenance_audit:main"
+eeg-build-gt-generated-comparison = "eeg_report_multiagent.cli.build_gt_generated_comparison:main"
+eeg-select-human-review-subset = "eeg_report_multiagent.cli.select_human_review_subset:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
