@@ -114,3 +114,13 @@ Reason: selected50 GT-reference audit showed v2 produces a localization proxy fo
 
 - Gate localization v2 report-surface text by section role and multi-proxy event support.
 Reason: localization should not be surfaced from generic detail sections or from peak topography alone. The updated claim gate keeps `event_peak_localization` debug-only by default and allows surface text only in epileptiform/events sections when candidate burden, peak-field concentration, epileptiform likelihood, and morphology support are jointly present. Re-rendering selected50 reduced localization surface mentions from 50/50 to 5/50, reduced unsupported GT-not-mentioned surface cases from 10 to 0, and reduced GT-absent false-positive surface cases from 16 to 2.
+
+## 2026-05-13
+- Unify report-surface policy behind `SurfacePolicy` and `AtomicClaimPlan`.
+Reason: Stage 0 leakage audit found that CELM-compatible synthesis and LLM synthesis could still verbalize Measurement/Finding objects or raw reviewer constraints directly. Final clinical prose now must come from `allow`/`caveat` atomic claim plans or deterministic safe fallbacks; `block` and `debug_only` entries remain available for audit/provenance only.
+
+- Treat event localization, candidate burden, train duration, laterality ratios, morphology screens, likelihood/support scores, and field-concentration ratios as debug/proxy evidence by default.
+Reason: these values may guide future claim gating, but they are not clinical report language by themselves. This prevents proxy features from becoming unsupported epileptiform, seizure, localization, or impression-level abnormalities.
+
+- Restrict LLM report synthesis to surface-approved atomic claim plans.
+Reason: method D can still use an LLM for wording/organization, but the LLM should not receive full measurements, findings, values previews, debug scores, or raw evidence-review text. This keeps external API usage downstream of the structured evidence gate and prevents raw/proxy evidence leakage.

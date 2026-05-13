@@ -127,7 +127,9 @@ def test_report_synthesizer_reflects_evidence_review_constraints() -> None:
 
     detail, impression, claims = ReportSynthesizer().synthesize(board)
 
-    assert "Evidence review:" in detail.text
-    assert "candidates" in impression.text
-    assert "Evidence gaps to address" in impression.text
+    assert "Evidence review:" not in detail.text
+    assert "event candidate burden" not in detail.text.lower()
+    assert "candidates" not in impression.text.lower()
+    assert "Evidence gaps to address" not in impression.text
+    assert "No surface-allowed" in detail.text
     assert claims

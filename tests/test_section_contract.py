@@ -57,4 +57,5 @@ def test_report_synthesizer_preserves_events_seizures_role_value():
     text = ReportSynthesizer()._event_section_text(EvidenceBoard(session_id="s1"), {}, {}, SectionRole.EVENTS_SEIZURES)
 
     assert text.startswith("Events/seizures:")
-    assert "Push-button event status" in text
+    assert "no seizure-specific evidence" in text
+    assert "candidate burden" not in text.lower()

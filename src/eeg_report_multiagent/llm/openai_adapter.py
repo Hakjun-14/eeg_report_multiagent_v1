@@ -322,13 +322,14 @@ class OpenAIReportSynthesisAdapter:
                 "Use concise formal report language, but preserve uncertainty and evidence limitations."
             ),
             "constraints": [
-                "Use only findings, measurements, provenance summaries, and deliberation constraints in the payload.",
+                "Use only the allowed or caveated atomic_claim_plans in the payload.",
                 "Do not infer new EEG findings from general medical knowledge.",
                 "Do not claim definite epileptiform discharges or seizures when evidence says event candidates only.",
                 "Do not claim focality/laterality without spatial provenance.",
+                "Do not verbalize internal detector scores, proxy labels, or raw reviewer/audit text.",
                 "Do not mention raw EEG review, GT/reference report text, or unavailable context.",
                 "Return exactly the requested section names where possible.",
-                "If evidence is weak, state the limitation rather than filling in unsupported normal findings.",
+                "If no atomic claim plan is available for a section, use a conservative empty-evidence statement.",
             ],
             "payload": evidence_payload,
         }

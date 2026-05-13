@@ -21,13 +21,13 @@ class FakeReportAdapter:
             "report_sections": [
                 {
                     "section_name": "EEG DESCRIPTION/DETAILS",
-                    "section_text": "Structured evidence shows slowing and event candidates.",
+                    "section_text": "Structured evidence suggests background slowing; this remains an assistive finding pending EEG review.",
                     "supporting_finding_ids": ["f_slow"],
-                    "evidence_limitations": ["candidate-only event evidence"],
+                    "evidence_limitations": ["surface-policy-gated evidence only"],
                 },
                 {
                     "section_name": "IMPRESSION/INTERPRETATION",
-                    "section_text": "Abnormal automated review with limited event specificity.",
+                    "section_text": "Structured evidence suggests background slowing; this remains an assistive finding pending EEG review.",
                     "supporting_finding_ids": ["f_slow"],
                     "evidence_limitations": ["neurologist review required"],
                 },
@@ -74,9 +74,44 @@ def test_d_synthesizer_uses_evidence_board_only_payload() -> None:
     assert result.section_texts["EEG DESCRIPTION/DETAILS"].startswith("Structured evidence")
     assert result.trace["raw_eeg_used"] is False
     assert result.trace["gt_report_used"] is False
+    assert "atomic_claim_plans" in adapter.payload
+    assert adapter.payload["atomic_claim_plans"][0]["claim_type"] == "background_slowing"
+    assert "findings" not in adapter.payload
+    assert "measurements" not in adapter.payload
+    assert "values_preview" not in str(adapter.payload)
+    assert "support score" not in str(adapter.payload).lower()
     assert adapter.payload["privacy_contract"] == {
         "contains_raw_eeg": False,
         "contains_gt_report_text": False,
         "contains_source_pkl_paths": False,
+        "contains_full_measurements": False,
+        "contains_full_findings": False,
+        "contains_debug_scores": False,
     }
     assert "reference_gt_report_text" in adapter.payload["forbidden_inputs"]
+
+
+def test_d_synthesizer_sanitizes_forbidden_model_surface_text() -> None:
+    class BadSurfaceAdapter(FakeReportAdapter):
+        def synthesize(self, evidence_payload):
+            self.payload = evidence_payload
+            return {
+                "report_sections": [
+                    {
+                        "section_name": "EEG DESCRIPTION/DETAILS",
+                        "section_text": "The candidate burden and field concentration ratio are high.",
+                    }
+                ],
+                "global_limitations": [],
+                "raw_eeg_used": False,
+                "gt_report_used": False,
+            }
+
+    result = EvidenceBoardLLMReportSynthesizer(adapter=BadSurfaceAdapter()).synthesize_celm_sections(
+        _board(),
+        ["EEG DESCRIPTION/DETAILS"],
+    )
+
+    assert "candidate burden" not in result.section_texts["EEG DESCRIPTION/DETAILS"].lower()
+    assert "field concentration ratio" not in result.section_texts["EEG DESCRIPTION/DETAILS"].lower()
+    assert "No surface-allowed" in result.section_texts["EEG DESCRIPTION/DETAILS"]

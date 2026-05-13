@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -38,6 +38,22 @@ class AtomicClaimPlan(BaseModel):
     surface_action: ClaimSurfaceAction
     confidence: Optional[float] = None
     rationale: Optional[str] = None
+    allowed_sections: List[str] = Field(default_factory=list)
+    forbidden_sections: List[str] = Field(default_factory=list)
+    clinical_phrase_template_id: Optional[str] = None
+    debug_payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class SurfaceDecision(BaseModel):
+    """Central decision for whether evidence may reach clinical report prose."""
+
+    surface_action: ClaimSurfaceAction
+    allowed_sections: List[str] = Field(default_factory=list)
+    forbidden_sections: List[str] = Field(default_factory=list)
+    clinical_phrase_template_id: Optional[str] = None
+    rationale: str
+    evidence_ids: List[str] = Field(default_factory=list)
+    debug_payload: dict[str, Any] = Field(default_factory=dict)
 
 
 class ClaimSupportLabel(str, Enum):

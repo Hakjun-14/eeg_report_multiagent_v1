@@ -53,7 +53,7 @@ def test_atomic_claim_plan_keeps_peak_localization_debug_only_by_default() -> No
     assert "definitive_epileptiform_morphology" in plans[0].missing_evidence
 
 
-def test_section_synthesis_surfaces_localization_only_in_event_sections_with_support() -> None:
+def test_section_synthesis_blocks_proxy_localization_even_with_support_scores() -> None:
     prov = ProvenanceRecord(source_type=SourceType.SIGNAL, source_ref="s")
 
     def exact(mid: str, name: str, value: float) -> MeasurementValue:
@@ -140,4 +140,5 @@ def test_section_synthesis_surfaces_localization_only_in_event_sections_with_sup
     )
 
     assert "localization screen suggested" not in sections["EEG DESCRIPTION/DETAILS"]
-    assert "localization screen suggested left temporal" in sections["EPLEPTIFORM ABNORMALITIES"]
+    assert "localization screen suggested left temporal" not in sections["EPLEPTIFORM ABNORMALITIES"]
+    assert "No surface-allowed epileptiform claim" in sections["EPLEPTIFORM ABNORMALITIES"]

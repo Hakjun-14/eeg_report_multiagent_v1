@@ -4,9 +4,11 @@ from dataclasses import dataclass
 from typing import Any, Dict, List
 
 from eeg_report_multiagent.llm import OpenAIReportSynthesisAdapter
+from eeg_report_multiagent.modules.report_synthesizer import ReportSynthesizer
+from eeg_report_multiagent.modules.section_router import SectionRouter
+from eeg_report_multiagent.modules.surface_policy import SurfacePolicy
 from eeg_report_multiagent.schemas.evidence import EvidenceBoard
-from eeg_report_multiagent.schemas.finding import FindingObject
-from eeg_report_multiagent.schemas.measurement import MeasurementValue
+from eeg_report_multiagent.schemas.report import AtomicClaimPlan, ClaimSurfaceAction
 
 
 @dataclass(frozen=True)
@@ -16,17 +18,26 @@ class LLMReportSynthesisResult:
 
 
 class EvidenceBoardLLMReportSynthesizer:
-    """Method D: EvidenceBoard-only LLM report synthesis.
+    """Method D: surface-policy-gated LLM report synthesis.
 
-    The LLM receives only typed evidence summaries and target section names. It
-    never receives raw EEG arrays, pkl paths, or GT/reference report text.
+    The LLM receives only AtomicClaimPlan entries that were already allowed or
+    caveated by SurfacePolicy. It never receives raw EEG arrays, pkl paths,
+    GT/reference report text, full measurement payloads, or debug/proxy scores.
     """
 
     synthesizer_name = "evidence_board_llm_report_synthesizer"
-    synthesis_version = "D_v1"
+    synthesis_version = "D_v2_surface_policy_gated"
 
-    def __init__(self, adapter: OpenAIReportSynthesisAdapter | None = None) -> None:
+    def __init__(
+        self,
+        adapter: OpenAIReportSynthesisAdapter | None = None,
+        report_synthesizer: ReportSynthesizer | None = None,
+        surface_policy: SurfacePolicy | None = None,
+    ) -> None:
         self.adapter = adapter or OpenAIReportSynthesisAdapter()
+        self.surface_policy = surface_policy or SurfacePolicy()
+        self.report_synthesizer = report_synthesizer or ReportSynthesizer(surface_policy=self.surface_policy)
+        self.section_router = SectionRouter()
 
     def synthesize_celm_sections(
         self,
@@ -47,170 +58,81 @@ class EvidenceBoardLLMReportSynthesizer:
             "model_response_id": model_output.get("_response_id"),
             "model_report_sections": model_output.get("report_sections", []),
             "privacy_contract": payload["privacy_contract"],
+            "surface_payload_summary": payload["surface_payload_summary"],
         }
         if trace["raw_eeg_used"] or trace["gt_report_used"]:
             raise ValueError("D synthesis violated input contract")
         return LLMReportSynthesisResult(section_texts=section_texts, trace=trace)
 
     def _build_payload(self, board: EvidenceBoard, target_section_names: List[str]) -> Dict[str, Any]:
-        measurement_index = {m.measurement_id: m for m in board.measurements}
+        claim_plans = self.report_synthesizer.build_atomic_claim_plan(board)
+        surface_plans = [
+            plan
+            for plan in claim_plans
+            if plan.surface_action in {ClaimSurfaceAction.ALLOW, ClaimSurfaceAction.CAVEAT}
+            and not self.surface_policy.contains_forbidden_surface_text(plan.proposed_text)
+        ]
         return {
             "session_id": board.session_id,
             "target_section_names": target_section_names,
-            "findings": [self._finding_payload(f, measurement_index) for f in board.findings],
-            "measurements": [self._measurement_payload(m) for m in board.measurements],
-            "deliberation_constraints": self._deliberation_payload(board),
+            "atomic_claim_plans": [self._claim_plan_payload(plan) for plan in surface_plans],
+            "surface_payload_summary": {
+                "total_atomic_claim_plans": len(claim_plans),
+                "surface_allowed_or_caveated_claim_plans": len(surface_plans),
+                "blocked_or_debug_only_claim_plans": len(claim_plans) - len(surface_plans),
+                "audit_only_review_record_count": self._audit_record_count(board),
+            },
             "style_policy": {
                 "tone": "formal_clinical_eeg_report",
-                "allowed_claims": "claims directly supported by typed evidence only",
-                "uncertainty_handling": "explicitly state candidate/automated/limited evidence when appropriate",
+                "allowed_claims": "verbalize only atomic_claim_plans supplied in this payload",
+                "uncertainty_handling": "preserve caveated wording from the atomic claim plan and do not upgrade certainty",
                 "section_behavior": "generate each requested section once and do not add extra sections",
+                "debug_surface_separation": (
+                    "Do not mention internal detector scores, proxy labels, reviewer raw text, or measurements "
+                    "that are not already translated into an atomic claim plan."
+                ),
             },
             "forbidden_inputs": [
                 "raw_eeg_arrays",
                 "processed_pkl_payloads",
                 "reference_gt_report_text",
+                "full_measurement_payloads",
+                "full_finding_payloads",
+                "raw_evidence_reviewer_text",
+                "debug_or_proxy_score_payloads",
                 "unbounded_external_tools",
             ],
             "privacy_contract": {
                 "contains_raw_eeg": False,
                 "contains_gt_report_text": False,
                 "contains_source_pkl_paths": False,
+                "contains_full_measurements": False,
+                "contains_full_findings": False,
+                "contains_debug_scores": False,
             },
         }
 
-    def _finding_payload(
-        self,
-        finding: FindingObject,
-        measurement_index: Dict[str, MeasurementValue],
-    ) -> Dict[str, Any]:
-        q = finding.quantitation
-        measurements = [measurement_index[mid] for mid in finding.measurement_ids if mid in measurement_index]
+    def _claim_plan_payload(self, plan: AtomicClaimPlan) -> Dict[str, Any]:
         return {
-            "finding_id": finding.finding_id,
-            "finding_type": finding.finding_type,
-            "assertion": finding.assertion.value,
-            "confidence": finding.confidence,
-            "source_module": finding.source_module,
-            "summary_label": finding.summary_label,
-            "quantitation": self._quantitation_payload(q),
-            "measurement_ids": finding.measurement_ids,
-            "measurement_names": [m.measurement_name for m in measurements],
-            "provenance_summary": self._provenance_summary(finding.provenance),
-            "tags": finding.tags,
+            "plan_id": plan.plan_id,
+            "claim_type": plan.claim_type,
+            "proposed_text": plan.proposed_text,
+            "surface_action": plan.surface_action.value,
+            "allowed_sections": plan.allowed_sections,
+            "clinical_phrase_template_id": plan.clinical_phrase_template_id,
+            "linked_finding_ids": plan.linked_finding_ids,
+            "linked_measurement_ids": plan.linked_measurement_ids,
+            "required_evidence": plan.required_evidence,
+            "missing_evidence": plan.missing_evidence,
+            "confidence": plan.confidence,
+            "rationale": plan.rationale,
         }
 
-    def _measurement_payload(self, measurement: MeasurementValue) -> Dict[str, Any]:
-        return {
-            "measurement_id": measurement.measurement_id,
-            "measurement_name": measurement.measurement_name,
-            "quantitation": self._quantitation_payload(measurement.quantitation),
-            "status": measurement.status_value.status.value if measurement.status_value else None,
-            "status_reason": measurement.status_value.reason if measurement.status_value else None,
-            "categorical_value": measurement.categorical_value,
-            "boolean_value": measurement.boolean_value,
-            "confidence": measurement.confidence,
-            "provenance_summary": self._provenance_summary([measurement.provenance]),
-        }
-
-    def _quantitation_payload(self, q: Any) -> Dict[str, Any] | None:
-        if q is None:
-            return None
-        return {
-            "kind": q.kind.value,
-            "unit": q.unit,
-            "exact": q.exact,
-            "lower": q.lower,
-            "upper": q.upper,
-            "values_count": len(q.values),
-            "values_preview": q.values[:8],
-        }
-
-    def _provenance_summary(self, provenance: List[Any]) -> Dict[str, Any]:
-        windows: list[int] = []
-        channels: list[str] = []
-        regions: list[str] = []
-        lateralities: list[str] = []
-        tools: list[str] = []
-        source_types: list[str] = []
-        has_time = False
-        has_space = False
-        for p in provenance:
-            source_types.append(p.source_type.value)
-            if p.time.window_indices:
-                has_time = True
-                windows.extend(int(x) for x in p.time.window_indices[:12])
-            if p.time.start_sec is not None or p.time.end_sec is not None:
-                has_time = True
-            if p.space.channels:
-                has_space = True
-                channels.extend(str(x) for x in p.space.channels[:12])
-            if p.space.region:
-                has_space = True
-                regions.append(str(p.space.region))
-            if p.space.laterality:
-                has_space = True
-                lateralities.append(str(p.space.laterality))
-            if p.measurement:
-                tools.append(str(p.measurement.tool_name))
-        return {
-            "source_types": sorted(set(source_types)),
-            "has_time": has_time,
-            "window_indices_preview": sorted(set(windows))[:12],
-            "has_space": has_space,
-            "channels_preview": sorted(set(channels))[:12],
-            "regions": sorted(set(regions)),
-            "lateralities": sorted(set(lateralities)),
-            "tool_names": sorted(set(tools)),
-            "provenance_count": len(provenance),
-        }
-
-    def _deliberation_payload(self, board: EvidenceBoard) -> Dict[str, Any]:
-        return {
-            "weak_evidence": [
-                {
-                    "severity": item.severity.value,
-                    "target_type": item.target_type,
-                    "target_id": item.target_id,
-                    "reason": item.reason,
-                    "recommendation": item.recommendation,
-                    "linked_finding_ids": item.linked_finding_ids,
-                }
-                for d in board.deliberations
-                for item in d.weak_evidence
-            ],
-            "missing_slots": [
-                {
-                    "slot_name": item.slot_name,
-                    "target_module": item.target_module,
-                    "severity": item.severity.value,
-                    "reason": item.reason,
-                    "expected_evidence": item.expected_evidence,
-                    "linked_finding_ids": item.linked_finding_ids,
-                }
-                for d in board.deliberations
-                for item in d.missing_slots
-            ],
-            "do_not_claim": [
-                {
-                    "text": item.text,
-                    "rationale": item.rationale,
-                    "linked_finding_ids": item.linked_finding_ids,
-                }
-                for d in board.deliberations
-                for item in d.do_not_claim
-            ],
-            "claim_constraints": [
-                {
-                    "target": item.target,
-                    "constraint": item.constraint,
-                    "rationale": item.rationale,
-                    "linked_finding_ids": item.linked_finding_ids,
-                }
-                for d in board.deliberations
-                for item in d.claim_constraints
-            ],
-        }
+    def _audit_record_count(self, board: EvidenceBoard) -> int:
+        return sum(
+            len(d.weak_evidence) + len(d.missing_slots) + len(d.do_not_claim) + len(d.claim_constraints)
+            for d in board.deliberations
+        )
 
     def _validate_and_align_sections(self, model_output: Dict[str, Any], target_section_names: List[str]) -> Dict[str, str]:
         raw_sections = model_output.get("report_sections") or []
@@ -225,5 +147,11 @@ class EvidenceBoardLLMReportSynthesizer:
             text = by_name.get(key)
             if text is None and idx < len(raw_sections) and isinstance(raw_sections[idx], dict):
                 text = str(raw_sections[idx].get("section_text", "")).strip()
-            section_texts[target] = text or "No supported structured evidence was available for this section."
+            text = text or self.surface_policy.safe_fallback_for_role(self.section_router.role_for_section(target))
+            section_texts[target] = self._sanitize_section_text(target, text)
         return section_texts
+
+    def _sanitize_section_text(self, section_name: str, text: str) -> str:
+        if self.surface_policy.contains_forbidden_surface_text(text):
+            return self.surface_policy.safe_fallback_for_role(self.section_router.role_for_section(section_name))
+        return text

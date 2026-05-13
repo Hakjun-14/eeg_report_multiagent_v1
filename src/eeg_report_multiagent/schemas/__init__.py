@@ -13,7 +13,7 @@ from .evidence import EvidenceBoard
 from .finding import FindingObject
 from .measurement import MeasurementValue, QuantitationValue, StatusValue
 from .provenance import ProvenanceRecord
-from .report import AtomicClaimPlan, ClaimRecord, ClaimSurfaceAction, ReportSection, VerificationRecord
+from .report import AtomicClaimPlan, ClaimRecord, ClaimSurfaceAction, ReportSection, SurfaceDecision, VerificationRecord
 from .section_contract import SectionRole, TargetReportSection, TargetSectionContract
 from .tooling import ToolInvocationRecord
 
@@ -27,6 +27,7 @@ __all__ = [
     "ReportSection",
     "AtomicClaimPlan",
     "ClaimSurfaceAction",
+    "SurfaceDecision",
     "ClaimRecord",
     "VerificationRecord",
     "SectionRole",
