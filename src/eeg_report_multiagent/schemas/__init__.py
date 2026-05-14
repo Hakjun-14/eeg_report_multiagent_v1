@@ -11,6 +11,14 @@ from .agent import (
 )
 from .evidence import EvidenceBoard
 from .finding import FindingObject
+from .final_prose_audit import (
+    ClaimSurfaceMatch,
+    DebugLeak,
+    FinalProseAuditResult,
+    NumericMention,
+    NumericProvenanceMatch,
+    SectionLeakage,
+)
 from .measurement import MeasurementValue, QuantitationValue, StatusValue
 from .provenance import ProvenanceRecord
 from .report import AtomicClaimPlan, ClaimRecord, ClaimSurfaceAction, ReportSection, SurfaceDecision, VerificationRecord
@@ -24,6 +32,12 @@ __all__ = [
     "QuantitationValue",
     "ProvenanceRecord",
     "FindingObject",
+    "NumericMention",
+    "DebugLeak",
+    "SectionLeakage",
+    "NumericProvenanceMatch",
+    "ClaimSurfaceMatch",
+    "FinalProseAuditResult",
     "EvidenceBoard",
     "ReportSection",
     "AtomicClaimPlan",

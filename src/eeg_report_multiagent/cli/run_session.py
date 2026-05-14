@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from eeg_report_multiagent.graph import run_pipeline
 from eeg_report_multiagent.modules.report_synthesizer import ReportSynthesizer
+from eeg_report_multiagent.modules.final_prose_auditor import FinalProseAuditor
 
 
 CODE_PATH_TRACE = [
@@ -91,6 +92,23 @@ CODE_PATH_TRACE = [
             "ReportSynthesizer.build_atomic_claim_plan",
             "ReportSynthesizer.synthesize",
             "ReportSynthesizer.synthesize_celm_sections",
+        ],
+    },
+    {
+        "block": "shared_evidence",
+        "file": "src/eeg_report_multiagent/schemas/shared_evidence.py",
+        "functions": ["SharedEvidenceBoard.add_evidence", "SharedEvidenceBoard.snapshot"],
+    },
+    {
+        "block": "final_prose_audit",
+        "file": "src/eeg_report_multiagent/modules/final_prose_auditor.py",
+        "functions": [
+            "FinalProseAuditor.audit_report",
+            "FinalProseAuditor.extract_numeric_mentions",
+            "FinalProseAuditor.detect_banned_debug_terms",
+            "FinalProseAuditor.detect_section_leakage",
+            "FinalProseAuditor.match_numeric_to_evidence",
+            "FinalProseAuditor.match_text_claims_to_atomic_plans",
         ],
     },
     {
@@ -354,6 +372,17 @@ def main() -> None:
     claims = board.claims if board is not None and hasattr(board, "claims") else []
     atomic_claim_plan = ReportSynthesizer().build_atomic_claim_plan(board) if board is not None else []
     _write_json(out_dir / "atomic_claim_plan.json", atomic_claim_plan)
+    final_prose_audit = None
+    if board is not None:
+        final_prose_audit = FinalProseAuditor().audit_report(
+            {
+                "EEG DESCRIPTION/DETAILS": detail_text,
+                "IMPRESSION/INTERPRETATION": impression_text,
+            },
+            board.ensure_shared_evidence_board(),
+            atomic_claim_plan,
+        )
+    _write_json(out_dir / "final_prose_audit.json", final_prose_audit)
     inference_trace = {
         "inputs": {
             "session_dir": args.session_dir,
@@ -398,6 +427,7 @@ def main() -> None:
             "atomic_claim_plan": atomic_claim_plan,
             "claims": claims,
         },
+        "final_prose_audit": final_prose_audit,
         "verification": final_state.get("verification", []),
         "run_log": final_state.get("run_log", []),
         "stats": {
@@ -411,6 +441,12 @@ def main() -> None:
             "llm_finding_proposals": len((final_state.get("llm_finding_proposals", {}) or {}).get("finding_proposals", [])),
             "verification_records": len(final_state.get("verification", [])),
             "atomic_claim_plans": len(atomic_claim_plan),
+            "audit_pass": final_prose_audit.pass_fail == "pass" if final_prose_audit else None,
+            "unsupported_numeric_count": len(final_prose_audit.unsupported_numeric_mentions) if final_prose_audit else 0,
+            "debug_leak_count": len(final_prose_audit.debug_leaks) if final_prose_audit else 0,
+            "section_leakage_count": len(final_prose_audit.section_leakages) if final_prose_audit else 0,
+            "seizure_gate_violation_count": len(final_prose_audit.seizure_gate_violations) if final_prose_audit else 0,
+            "claim_trace_coverage": final_prose_audit.metrics.get("ClaimTraceCoverage") if final_prose_audit else None,
         },
     }
     _write_json(out_dir / "inference_trace.json", inference_trace)
@@ -430,6 +466,7 @@ def main() -> None:
         "impression.txt",
         "verification.json",
         "atomic_claim_plan.json",
+        "final_prose_audit.json",
         "inference_trace.json",
         "agent_deliberations.json",
         "llm_finding_proposals.json",

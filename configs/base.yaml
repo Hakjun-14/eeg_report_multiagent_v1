@@ -12,6 +12,12 @@ processing:
     focused:
       neighbor_radius_windows: 1
 
+final_prose_audit:
+  enabled: true
+  hard_fail_on_high_risk: false
+  store_artifact: true
+  banned_terms_version: "v1"
+
 status_semantics:
   allowed:
     - present

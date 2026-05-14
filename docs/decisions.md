@@ -134,3 +134,9 @@ Reason: proxy values such as candidate burden, localization ratios, field concen
 
 - Link `AtomicClaimPlan` entries to SharedEvidenceBoard evidence IDs.
 Reason: report-surface claims should be traceable to evidence items, not only to raw measurement/finding IDs. This supports future claim verification, clinical audit, and human-review tooling without weakening the Stage 0.5 surface policy.
+
+- Add final-prose audit after report synthesis.
+Reason: Stage 1 makes evidence traceable before claim planning, but final output still needs an independent check that numeric values, section placement, seizure language, and debug/proxy phrases actually obey the EvidenceItem and AtomicClaimPlan links. Stage 2 therefore writes `final_prose_audit.json` and reports UnsupportedNumericRate, NumericProvenanceAccuracy, ClaimTraceCoverage, debug leakage, section leakage, and seizure-gate violations.
+
+- Treat final-prose audit as a warning/evaluation layer, not a detector or wording upgrade.
+Reason: this stage should not add EEG detectors, train models, or improve report richness. It only verifies whether the already generated clinical prose is safe, traceable, and free of internal artifact leakage. Controlled tests fail on high-risk violations, while normal CLI runs emit audit artifacts and warnings for later hard-fail configuration.

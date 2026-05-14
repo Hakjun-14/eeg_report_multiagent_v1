@@ -12,6 +12,7 @@ from eeg_report_multiagent.evaluation.method_audit import audit_artifact_dir, re
 from eeg_report_multiagent.evaluation.section_contract_audit import audit_section_contract
 from eeg_report_multiagent.io import load_celm_split_sample, make_celm_generated_report
 from eeg_report_multiagent.modules.report_synthesizer import ReportSynthesizer
+from eeg_report_multiagent.modules.final_prose_auditor import FinalProseAuditor
 from eeg_report_multiagent.schemas.evidence import EvidenceBoard
 
 
@@ -123,6 +124,13 @@ def main() -> None:
         board = EvidenceBoard.model_validate_json(evidence_board_path.read_text(encoding="utf-8"))
         section_audit = audit_section_contract(sample.target_section_contract, board, generated_report)
         _write_json(out_dir / "section_contract_audit.json", section_audit)
+        claim_plan = ReportSynthesizer().build_atomic_claim_plan(board)
+        final_prose_audit = FinalProseAuditor().audit_report(
+            generated_report,
+            board.ensure_shared_evidence_board(),
+            claim_plan,
+        )
+        _write_json(out_dir / "final_prose_audit.json", final_prose_audit)
     audit = audit_artifact_dir(out_dir)
     _write_json(out_dir / "method_audit.json", audit)
     (out_dir / "method_audit.md").write_text(render_audit_markdown(audit), encoding="utf-8")
