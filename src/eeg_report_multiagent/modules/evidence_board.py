@@ -7,6 +7,7 @@ from eeg_report_multiagent.schemas.finding import FindingObject
 from eeg_report_multiagent.schemas.measurement import MeasurementValue
 from eeg_report_multiagent.schemas.report import ClaimRecord
 from eeg_report_multiagent.schemas.tooling import ToolInvocationRecord
+from eeg_report_multiagent.modules.evidence_item_adapter import build_shared_evidence_board
 
 
 class EvidenceBoardAssembler:
@@ -35,6 +36,11 @@ class EvidenceBoardAssembler:
             findings=findings,
             claims=claims or [],
             tool_invocations=invocations,
+            shared_evidence_board=build_shared_evidence_board(
+                recording_id=session_id,
+                measurements=measurements,
+                findings=findings,
+            ),
         )
         board.rebuild_index()
         return board

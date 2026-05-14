@@ -340,6 +340,9 @@ def main() -> None:
     _write_json(out_dir / "event_findings.json", final_state.get("event_findings", []))
     _write_json(out_dir / "parsed_context.json", final_state.get("parser_findings", []))
     _write_json(out_dir / "evidence_board.json", final_state.get("evidence_board"))
+    board = final_state.get("evidence_board")
+    shared_evidence_snapshot = board.ensure_shared_evidence_board().snapshot() if board is not None else None
+    _write_json(out_dir / "shared_evidence_board.json", shared_evidence_snapshot)
 
     detail_text = final_state.get("detail_section").text if final_state.get("detail_section") else ""
     impression_text = final_state.get("impression_section").text if final_state.get("impression_section") else ""
@@ -348,7 +351,6 @@ def main() -> None:
 
     _write_json(out_dir / "verification.json", final_state.get("verification", []))
 
-    board = final_state.get("evidence_board")
     claims = board.claims if board is not None and hasattr(board, "claims") else []
     atomic_claim_plan = ReportSynthesizer().build_atomic_claim_plan(board) if board is not None else []
     _write_json(out_dir / "atomic_claim_plan.json", atomic_claim_plan)
@@ -387,6 +389,7 @@ def main() -> None:
             "tool_invocations": final_state.get("parser_tool_invocations", []),
         },
         "evidence_board": board,
+        "shared_evidence_board": shared_evidence_snapshot,
         "agent_deliberations": final_state.get("agent_deliberations", []),
         "llm_finding_proposals": final_state.get("llm_finding_proposals", {}),
         "report_synthesis": {
@@ -422,6 +425,7 @@ def main() -> None:
         "event_findings.json",
         "parsed_context.json",
         "evidence_board.json",
+        "shared_evidence_board.json",
         "detail.txt",
         "impression.txt",
         "verification.json",

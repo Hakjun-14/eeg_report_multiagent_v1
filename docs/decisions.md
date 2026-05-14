@@ -124,3 +124,13 @@ Reason: these values may guide future claim gating, but they are not clinical re
 
 - Restrict LLM report synthesis to surface-approved atomic claim plans.
 Reason: method D can still use an LLM for wording/organization, but the LLM should not receive full measurements, findings, values previews, debug scores, or raw evidence-review text. This keeps external API usage downstream of the structured evidence gate and prevents raw/proxy evidence leakage.
+
+## 2026-05-14
+- Add `EvidenceItem` and `SharedEvidenceBoard` as the typed evidence layer before `AtomicClaimPlan`.
+Reason: measurements and findings are necessary but too close to raw tool outputs for report-surface governance. Stage 1 introduces a queryable evidence layer with evidence type, clinical target, reportability, time/space provenance, and measurement/finding links before any claim planning occurs.
+
+- Convert Measurement/Finding objects into conservative EvidenceItems before report synthesis.
+Reason: proxy values such as candidate burden, localization ratios, field concentration, morphology support, and likelihood scores should be preserved for provenance and future gating while remaining `debug_only` by default. Reportable numeric values now need an EvidenceItem with unit, clinical target, section policy, and allow/caveat reportability.
+
+- Link `AtomicClaimPlan` entries to SharedEvidenceBoard evidence IDs.
+Reason: report-surface claims should be traceable to evidence items, not only to raw measurement/finding IDs. This supports future claim verification, clinical audit, and human-review tooling without weakening the Stage 0.5 surface policy.

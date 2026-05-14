@@ -117,6 +117,7 @@ class EvidenceBoardLLMReportSynthesizer:
             "plan_id": plan.plan_id,
             "claim_type": plan.claim_type,
             "proposed_text": plan.proposed_text,
+            "evidence_ids": plan.evidence_ids,
             "surface_action": plan.surface_action.value,
             "allowed_sections": plan.allowed_sections,
             "clinical_phrase_template_id": plan.clinical_phrase_template_id,

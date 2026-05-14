@@ -23,6 +23,7 @@ from eeg_report_multiagent.modules import (
     ProtocolStateContextParser,
     ReportSynthesizer,
 )
+from eeg_report_multiagent.modules.evidence_item_adapter import append_deliberation_evidence
 from eeg_report_multiagent.tools import build_background_registry, build_event_registry, build_parser_registry
 
 
@@ -186,6 +187,7 @@ def evidence_review_node(state: Dict) -> Dict:
     deliberation = reviewer.run(state["evidence_board"])
     state["agent_deliberations"] = [deliberation]
     state["evidence_board"].deliberations = [deliberation]
+    append_deliberation_evidence(state["evidence_board"].ensure_shared_evidence_board(), deliberation)
     _append_log(state, f"LLM evidence review completed with status={deliberation.status}")
     return state
 

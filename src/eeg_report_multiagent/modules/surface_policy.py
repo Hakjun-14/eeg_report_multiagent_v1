@@ -6,6 +6,7 @@ from eeg_report_multiagent.schemas.finding import FindingObject
 from eeg_report_multiagent.schemas.measurement import MeasurementValue, StatusSemantic
 from eeg_report_multiagent.schemas.report import AtomicClaimPlan, ClaimSurfaceAction, SurfaceDecision
 from eeg_report_multiagent.schemas.section_contract import SectionRole
+from eeg_report_multiagent.schemas.shared_evidence import ClinicalTarget, EvidenceItem, EvidenceType
 
 
 class SurfacePolicy:
@@ -93,11 +94,15 @@ class SurfacePolicy:
         *,
         measurement: MeasurementValue | None = None,
         missing_evidence: list[str] | None = None,
+        evidence_items: list[EvidenceItem] | None = None,
     ) -> SurfaceDecision:
         if isinstance(item, AtomicClaimPlan):
             return self._decision_from_claim_plan(item)
         if isinstance(item, MeasurementValue):
             return self._decision_from_measurement(item)
+        evidence_gate = self._decision_from_evidence_items(evidence_items or [])
+        if evidence_gate is not None:
+            return evidence_gate
         return self._decision_from_finding(item, measurement=measurement, missing_evidence=missing_evidence or [])
 
     def _decision_from_claim_plan(self, plan: AtomicClaimPlan) -> SurfaceDecision:
@@ -107,9 +112,50 @@ class SurfacePolicy:
             forbidden_sections=plan.forbidden_sections,
             clinical_phrase_template_id=plan.clinical_phrase_template_id,
             rationale=plan.rationale or "Atomic claim plan already contains a surface decision.",
-            evidence_ids=plan.linked_finding_ids + plan.linked_measurement_ids,
+            evidence_ids=plan.evidence_ids or plan.linked_finding_ids + plan.linked_measurement_ids,
             debug_payload=plan.debug_payload,
         )
+
+    def _decision_from_evidence_items(self, evidence_items: list[EvidenceItem]) -> SurfaceDecision | None:
+        if not evidence_items:
+            return None
+        evidence_ids = [item.evidence_id for item in evidence_items]
+        if any(item.evidence_type == EvidenceType.DEBUG for item in evidence_items):
+            return self._decision(
+                ClaimSurfaceAction.DEBUG_ONLY,
+                "debug_evidence_item",
+                "Debug evidence items cannot directly surface as clinical prose.",
+                evidence_ids=evidence_ids,
+                debug_payload={"evidence_ids": evidence_ids},
+            )
+        reportabilities = {item.reportability for item in evidence_items}
+        if reportabilities and reportabilities.issubset({ClaimSurfaceAction.DEBUG_ONLY}):
+            return self._decision(
+                ClaimSurfaceAction.DEBUG_ONLY,
+                "debug_only_evidence_item",
+                "Debug-only evidence items may support audit/gating but not clinical prose.",
+                evidence_ids=evidence_ids,
+                debug_payload={"evidence_ids": evidence_ids},
+            )
+        if reportabilities and reportabilities.issubset({ClaimSurfaceAction.BLOCK, ClaimSurfaceAction.DEBUG_ONLY}):
+            return self._decision(
+                ClaimSurfaceAction.BLOCK,
+                "blocked_evidence_item",
+                "Linked evidence items are blocked or debug-only.",
+                evidence_ids=evidence_ids,
+                debug_payload={"evidence_ids": evidence_ids},
+            )
+        if any(item.clinical_target == ClinicalTarget.SEIZURE_EVIDENCE for item in evidence_items):
+            seizure_items = [item for item in evidence_items if item.clinical_target == ClinicalTarget.SEIZURE_EVIDENCE]
+            if not any(item.reportability in {ClaimSurfaceAction.ALLOW, ClaimSurfaceAction.CAVEAT} for item in seizure_items):
+                return self._decision(
+                    ClaimSurfaceAction.BLOCK,
+                    "no_reportable_seizure_evidence",
+                    "A seizure claim requires reportable seizure-specific evidence.",
+                    evidence_ids=evidence_ids,
+                    debug_payload={"evidence_ids": evidence_ids},
+                )
+        return None
 
     def _decision_from_measurement(self, measurement: MeasurementValue) -> SurfaceDecision:
         if measurement.measurement_name in self.DEBUG_ONLY_MEASUREMENT_NAMES or measurement.measurement_name.startswith("relative_bandpower_"):

@@ -29,17 +29,21 @@ class ReportSynthesizer:
     def synthesize(self, board: EvidenceBoard) -> tuple[ReportSection, ReportSection, List[ClaimRecord]]:
         claims: List[ClaimRecord] = []
         claim_plan = self.build_atomic_claim_plan(board)
+        shared_board = board.ensure_shared_evidence_board()
         detail_lines = self._section_lines_from_plans(claim_plan, SectionRole.DETAIL)
 
         for plan in self._surfaceable_plans(claim_plan):
+            claim_id = f"c_{plan.plan_id}"
             claims.append(
                 ClaimRecord(
-                    claim_id=f"c_{plan.plan_id}",
+                    claim_id=claim_id,
                     section_type=plan.section_type,
                     text=plan.proposed_text,
                     linked_finding_ids=plan.linked_finding_ids,
                 )
             )
+            if plan.evidence_ids:
+                shared_board.link_to_claim(claim_id, plan.evidence_ids)
         if not detail_lines:
             detail_lines = [self.surface_policy.safe_fallback_for_role(SectionRole.DETAIL)]
 
@@ -76,19 +80,33 @@ class ReportSynthesizer:
         measurements/findings. This method is the first place where those
         evidence objects are converted into candidate clinical report claims.
         """
+        shared_board = board.ensure_shared_evidence_board()
         measurement_index = {m.measurement_id: m for m in board.measurements}
         plans: List[AtomicClaimPlan] = []
         for finding in board.findings:
             measurement = self._first_measurement(finding, measurement_index)
             required, missing = self._claim_evidence_requirements(finding, measurement)
-            decision = self.surface_policy.decide(finding, measurement=measurement, missing_evidence=missing)
+            evidence_items = [
+                item
+                for item in shared_board.evidence_items
+                if finding.finding_id in item.finding_ids
+                or any(measurement_id in item.measurement_ids for measurement_id in finding.measurement_ids)
+            ]
+            decision = self.surface_policy.decide(
+                finding,
+                measurement=measurement,
+                missing_evidence=missing,
+                evidence_items=evidence_items,
+            )
             proposed_text = self._claim_text_from_surface_decision(finding, measurement, decision)
+            evidence_ids = [item.evidence_id for item in evidence_items] or decision.evidence_ids
             plans.append(
                 AtomicClaimPlan(
                     plan_id=f"p_{finding.finding_id}",
                     section_type=ReportSectionType.DETAIL,
                     claim_type=finding.finding_type,
                     proposed_text=proposed_text,
+                    evidence_ids=evidence_ids,
                     linked_finding_ids=[finding.finding_id],
                     linked_measurement_ids=list(finding.measurement_ids),
                     required_evidence=required,

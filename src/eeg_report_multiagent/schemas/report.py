@@ -31,6 +31,7 @@ class AtomicClaimPlan(BaseModel):
     section_type: ReportSectionType
     claim_type: str
     proposed_text: str
+    evidence_ids: List[str] = Field(default_factory=list)
     linked_finding_ids: List[str] = Field(default_factory=list)
     linked_measurement_ids: List[str] = Field(default_factory=list)
     required_evidence: List[str] = Field(default_factory=list)

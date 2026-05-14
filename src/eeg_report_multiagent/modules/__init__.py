@@ -1,6 +1,7 @@
 from .background_module import BackgroundModule
 from .claim_verifier import ClaimVerifier
 from .evidence_board import EvidenceBoardAssembler
+from .evidence_item_adapter import build_shared_evidence_board, evidence_item_from_finding, evidence_item_from_measurement
 from .event_module import EventModule
 from .evidence_reviewer import EvidenceReviewModule
 from .llm_report_synthesizer import EvidenceBoardLLMReportSynthesizer, LLMReportSynthesisResult
@@ -14,6 +15,9 @@ __all__ = [
     "EventModule",
     "ProtocolStateContextParser",
     "EvidenceBoardAssembler",
+    "build_shared_evidence_board",
+    "evidence_item_from_finding",
+    "evidence_item_from_measurement",
     "EvidenceReviewModule",
     "EvidenceBoardLLMReportSynthesizer",
     "LLMReportSynthesisResult",

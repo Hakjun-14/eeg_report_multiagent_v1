@@ -15,6 +15,7 @@ from .measurement import MeasurementValue, QuantitationValue, StatusValue
 from .provenance import ProvenanceRecord
 from .report import AtomicClaimPlan, ClaimRecord, ClaimSurfaceAction, ReportSection, SurfaceDecision, VerificationRecord
 from .section_contract import SectionRole, TargetReportSection, TargetSectionContract
+from .shared_evidence import ClinicalTarget, EvidenceBoardSnapshot, EvidenceItem, EvidenceType, SharedEvidenceBoard
 from .tooling import ToolInvocationRecord
 
 __all__ = [
@@ -30,6 +31,11 @@ __all__ = [
     "SurfaceDecision",
     "ClaimRecord",
     "VerificationRecord",
+    "EvidenceItem",
+    "EvidenceType",
+    "ClinicalTarget",
+    "SharedEvidenceBoard",
+    "EvidenceBoardSnapshot",
     "SectionRole",
     "TargetReportSection",
     "TargetSectionContract",
