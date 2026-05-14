@@ -55,6 +55,7 @@ eeg-run-clinical-provenance-audit = "eeg_report_multiagent.cli.run_clinical_prov
 eeg-build-gt-generated-comparison = "eeg_report_multiagent.cli.build_gt_generated_comparison:main"
 eeg-select-human-review-subset = "eeg_report_multiagent.cli.select_human_review_subset:main"
 eeg-run-batch-final-prose-audit = "eeg_report_multiagent.cli.run_batch_final_prose_audit:main"
+eeg-run-evidence-flow-audit = "eeg_report_multiagent.cli.run_evidence_flow_audit:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

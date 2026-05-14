@@ -10,6 +10,7 @@ from .agent import (
     WeakEvidenceRecord,
 )
 from .evidence import EvidenceBoard
+from .evidence_flow import EvidenceFlowAggregate, EvidenceFlowAuditResult, SlotFlowRecord
 from .finding import FindingObject
 from .final_prose_audit import (
     ClaimSurfaceMatch,
@@ -39,6 +40,9 @@ __all__ = [
     "ClaimSurfaceMatch",
     "FinalProseAuditResult",
     "EvidenceBoard",
+    "SlotFlowRecord",
+    "EvidenceFlowAuditResult",
+    "EvidenceFlowAggregate",
     "ReportSection",
     "AtomicClaimPlan",
     "ClaimSurfaceAction",

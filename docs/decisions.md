@@ -152,3 +152,9 @@ Reason: `Our_Upgrade_LLMProp` was produced before unified SurfacePolicy, SharedE
 
 - Fix final-prose numeric audit rounding for reportable range evidence.
 Reason: regenerated selected50 exposed a false-positive audit path where rounded amplitude text such as `0.0-80 uV` failed to match `0.0-79.8 uV` EvidenceItems and instead matched unrelated low-frequency values by value overlap. The auditor now allows clinically harmless display rounding while preserving unit/reportability checks.
+
+- Add Stage 2.75 evidence flow and gate-loss audit before changing detectors or SurfacePolicy.
+Reason: `Our_EvidenceGated_v1` is safe but clinically under-informative. The new audit traces each clinical slot from Measurement/Finding through EvidenceItem, AtomicClaimPlan, and final prose so we can distinguish evidence absence, conservative reportability, claim planning failure, and true SurfacePolicy over-suppression.
+
+- Treat Stage 3C as the current data-supported next focus, with targeted Stage 3A repairs for missing event amplitude/frequency, electrode maxima, and push-button metadata.
+Reason: selected50 evidence-flow audit shows most slots already have measurements, EvidenceItems, and AtomicClaimPlans, but many are blocked/debug-only due to reportability, morphology/state/protocol support, or internal-score suppression. Some slots remain absent and need extraction work, but the dominant bottleneck is evidence classification/weighting rather than raw loader failure.
