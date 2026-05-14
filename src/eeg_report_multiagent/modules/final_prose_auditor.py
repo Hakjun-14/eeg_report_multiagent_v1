@@ -358,7 +358,7 @@ class FinalProseAuditor:
             low = sentence.lower()
             if self._is_safe_no_seizure_fallback(low):
                 continue
-            if "seizure" in low and not has_seizure_evidence:
+            if self._is_seizure_surface_claim(low) and not has_seizure_evidence:
                 violations.append(self._section_leak(section_name, sentence, "seizure_claim_without_seizure_evidence", "Seizure language appears without reportable seizure_evidence EvidenceItem."))
         return violations
 
@@ -512,6 +512,28 @@ class FinalProseAuditor:
 
     def _is_safe_no_seizure_fallback(self, low_sentence: str) -> bool:
         return "no seizure-specific evidence was produced by the current structured tools" in low_sentence
+
+    def _is_seizure_surface_claim(self, low_sentence: str) -> bool:
+        if "seizure" not in low_sentence:
+            return False
+        claim_patterns = [
+            "seizures:",
+            "seizures consist",
+            "seizure consists",
+            "seizures were",
+            "seizure was",
+            "seizures are",
+            "seizure is",
+            "seizures recorded",
+            "seizure recorded",
+            "electrographic seizure",
+            "organized or evolving patterns suggestive of seizures",
+            "no seizures",
+            "no seizure",
+            "confirmed seizure",
+            "seizure-specific",
+        ]
+        return any(pattern in low_sentence for pattern in claim_patterns)
 
     def _is_surface_claim_sentence(self, sentence: str) -> bool:
         low = sentence.lower()

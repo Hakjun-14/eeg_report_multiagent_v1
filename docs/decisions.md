@@ -140,3 +140,9 @@ Reason: Stage 1 makes evidence traceable before claim planning, but final output
 
 - Treat final-prose audit as a warning/evaluation layer, not a detector or wording upgrade.
 Reason: this stage should not add EEG detectors, train models, or improve report richness. It only verifies whether the already generated clinical prose is safe, traceable, and free of internal artifact leakage. Controlled tests fail on high-risk violations, while normal CLI runs emit audit artifacts and warnings for later hard-fail configuration.
+
+- Add Stage 2.5 batch final-prose audit with separate text-only and full-trace modes.
+Reason: CELM and older OURS outputs do not carry SharedEvidenceBoard/AtomicClaimPlan traces, so they should be evaluated for surface safety without being penalized for missing OURS-specific trace objects. Full traceability metrics are reported only when local evidence and claim-plan artifacts exist.
+
+- Use batch audit as failure-pattern discovery, not method optimization.
+Reason: selected50 final-prose audit aggregates debug leakage, unsupported numeric heuristics, section leakage, seizure-gate pressure, and trace coverage. These metrics identify which failure buckets should drive Stage 3, but they do not change report wording, SurfacePolicy, detectors, or evidence weighting.
