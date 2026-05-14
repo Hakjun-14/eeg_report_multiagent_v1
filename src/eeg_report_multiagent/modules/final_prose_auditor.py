@@ -392,9 +392,10 @@ class FinalProseAuditor:
                 if isinstance(value, dict) and value.get("lower") is not None and value.get("upper") is not None:
                     elo = float(value["lower"])
                     ehi = float(value["upper"])
-                    if abs(mlo - elo) <= 0.05 and abs(mhi - ehi) <= 0.05:
+                    tol = self._range_tolerance(mlo, mhi, elo, ehi)
+                    if abs(mlo - elo) <= tol and abs(mhi - ehi) <= tol:
                         return NumericMatchStatus.EXACT
-                    if elo <= mlo <= mhi <= ehi:
+                    if elo - tol <= mlo <= mhi <= ehi + tol:
                         return NumericMatchStatus.RANGE_CONTAINED
                 if isinstance(value, (int, float)) and mlo <= float(value) <= mhi:
                     return NumericMatchStatus.RANGE_CONTAINED
@@ -408,6 +409,11 @@ class FinalProseAuditor:
                 if isinstance(value, list) and any(isinstance(x, (int, float)) and abs(mv - float(x)) <= max(0.05, abs(float(x)) * 0.01) for x in value):
                     return NumericMatchStatus.EXACT
         return None
+
+    def _range_tolerance(self, *values: float) -> float:
+        """Allow clinically harmless display rounding, e.g. 79.8 uV -> 80 uV."""
+        scale = max([abs(v) for v in values] + [1.0])
+        return max(0.5, scale * 0.01)
 
     def _unit_clinically_meaningful(self, unit: str | None, item: EvidenceItem) -> bool:
         if not unit:

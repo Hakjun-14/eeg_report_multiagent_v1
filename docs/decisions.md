@@ -146,3 +146,9 @@ Reason: CELM and older OURS outputs do not carry SharedEvidenceBoard/AtomicClaim
 
 - Use batch audit as failure-pattern discovery, not method optimization.
 Reason: selected50 final-prose audit aggregates debug leakage, unsupported numeric heuristics, section leakage, seizure-gate pressure, and trace coverage. These metrics identify which failure buckets should drive Stage 3, but they do not change report wording, SurfacePolicy, detectors, or evidence weighting.
+
+- Regenerate selected50 as `Our_EvidenceGated_v1` using the latest Stage 0.5/1/2 workflow.
+Reason: `Our_Upgrade_LLMProp` was produced before unified SurfacePolicy, SharedEvidenceBoard, and FinalProseAuditor were fully integrated. A fresh variant is required to distinguish current evidence-gated behavior from older leakage-prone outputs.
+
+- Fix final-prose numeric audit rounding for reportable range evidence.
+Reason: regenerated selected50 exposed a false-positive audit path where rounded amplitude text such as `0.0-80 uV` failed to match `0.0-79.8 uV` EvidenceItems and instead matched unrelated low-frequency values by value overlap. The auditor now allows clinically harmless display rounding while preserving unit/reportability checks.

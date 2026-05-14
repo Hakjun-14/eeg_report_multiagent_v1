@@ -108,6 +108,43 @@ def test_numeric_matching_exact_range_unit_debug_wrong_section() -> None:
     assert auditor.match_numeric_to_evidence(wrong_section, board.evidence_items).match_status == NumericMatchStatus.MATCHED_BUT_WRONG_SECTION
 
 
+def test_numeric_matching_accepts_display_rounded_amplitude_range() -> None:
+    auditor = FinalProseAuditor()
+    board = SharedEvidenceBoard(board_id="seb", recording_id="s")
+    board.add_evidence(EvidenceItem(
+        evidence_id="ev_background_dominant_frequency",
+        source_module="background",
+        evidence_type=EvidenceType.PROXY,
+        clinical_target=ClinicalTarget.BACKGROUND_SLOWING,
+        value=0.5,
+        normalized_value=0.5,
+        unit="Hz",
+        reportability=ClaimSurfaceAction.DEBUG_ONLY,
+        created_by="test",
+    ))
+    board.add_evidence(EvidenceItem(
+        evidence_id="ev_background_amplitude_range",
+        source_module="background",
+        evidence_type=EvidenceType.DERIVED,
+        clinical_target=ClinicalTarget.BACKGROUND_AMPLITUDE,
+        value={"lower": 0.0, "upper": 79.7996},
+        normalized_value={"lower": 0.0, "upper": 79.7996},
+        unit="uV",
+        reportability=ClaimSurfaceAction.CAVEAT,
+        allowed_sections=[SectionRole.BACKGROUND.value],
+        created_by="test",
+    ))
+
+    mention = auditor.extract_numeric_mentions(
+        "A provenance-linked background amplitude range is available (0.0-80 uV).",
+        "BACKGROUND ACTIVITY",
+    )[0]
+    match = auditor.match_numeric_to_evidence(mention, board.evidence_items)
+
+    assert match.match_status == NumericMatchStatus.EXACT
+    assert match.matched_evidence_id == "ev_background_amplitude_range"
+
+
 def test_debug_leak_detection_terms() -> None:
     text = "Candidate burden and bifrontal spread tendency were high; support score and likelihood score used field concentration ratio with missing_slots."
     leaks = FinalProseAuditor().detect_banned_debug_terms(text, "EEG DESCRIPTION/DETAILS")
