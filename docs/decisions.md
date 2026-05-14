@@ -158,3 +158,12 @@ Reason: `Our_EvidenceGated_v1` is safe but clinically under-informative. The new
 
 - Treat Stage 3C as the current data-supported next focus, with targeted Stage 3A repairs for missing event amplitude/frequency, electrode maxima, and push-button metadata.
 Reason: selected50 evidence-flow audit shows most slots already have measurements, EvidenceItems, and AtomicClaimPlans, but many are blocked/debug-only due to reportability, morphology/state/protocol support, or internal-score suppression. Some slots remain absent and need extraction work, but the dominant bottleneck is evidence classification/weighting rather than raw loader failure.
+
+- Add minimal Stage 3C reportability calibration before claim planning.
+Reason: Stage 2.75 showed that useful evidence often reached EvidenceItem and AtomicClaimPlan but was blocked as `numeric_not_reportable`, `proxy_or_debug_only`, or `surface_policy_rejected`. The new calibrator is deliberately narrow: it can only produce allow/caveat decisions for clinically bounded slots such as metadata/status, posterior-alpha PDR candidates with posterior provenance, and background amplitude, while keeping event burden, duration, scores, ratios, seizure candidates, and debug evidence out of final prose.
+
+- Preserve original EvidenceItems and add explicit calibrated evidence copies for surfaced Stage 3C claims.
+Reason: silently mutating EvidenceItem reportability would obscure provenance. Stage 3C therefore creates `cal_*` EvidenceItems only when a safe calibration override is used, with the original evidence ID recorded in debug metadata. LLM-assisted reviewer records remain audit-only and are not converted into calibrated clinical provenance.
+
+- Keep FinalProseAuditor as the post-synthesis safety arbiter after calibration.
+Reason: calibration is not a bypass around SurfacePolicy. Selected50 rerendering after Stage 3C preserved zero debug leaks, zero unsupported numerics, zero section leakage, zero seizure-gate violations, and full trace coverage while modestly increasing slot surface rate and reducing useful-suppressed rate.

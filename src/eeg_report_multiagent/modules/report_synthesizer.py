@@ -14,8 +14,10 @@ from eeg_report_multiagent.schemas.report import (
     SurfaceDecision,
 )
 from eeg_report_multiagent.schemas.section_contract import SectionRole
+from eeg_report_multiagent.schemas.shared_evidence import EvidenceType, SharedEvidenceBoard
 from eeg_report_multiagent.modules.section_router import SectionRouter
 from eeg_report_multiagent.modules.surface_policy import SurfacePolicy
+from eeg_report_multiagent.modules.reportability_calibration import EvidenceReportabilityCalibrator
 
 
 class ReportSynthesizer:
@@ -23,8 +25,13 @@ class ReportSynthesizer:
 
     DEBUG_SURFACE_FINDING_TYPES = SurfacePolicy.DEBUG_ONLY_FINDING_TYPES
 
-    def __init__(self, surface_policy: SurfacePolicy | None = None) -> None:
+    def __init__(
+        self,
+        surface_policy: SurfacePolicy | None = None,
+        reportability_calibrator: EvidenceReportabilityCalibrator | None = None,
+    ) -> None:
         self.surface_policy = surface_policy or SurfacePolicy()
+        self.reportability_calibrator = reportability_calibrator or EvidenceReportabilityCalibrator()
 
     def synthesize(self, board: EvidenceBoard) -> tuple[ReportSection, ReportSection, List[ClaimRecord]]:
         claims: List[ClaimRecord] = []
@@ -92,14 +99,27 @@ class ReportSynthesizer:
                 if finding.finding_id in item.finding_ids
                 or any(measurement_id in item.measurement_ids for measurement_id in finding.measurement_ids)
             ]
-            decision = self.surface_policy.decide(
+            base_decision = self.surface_policy.decide(
                 finding,
                 measurement=measurement,
                 missing_evidence=missing,
                 evidence_items=evidence_items,
             )
+            decision = self.reportability_calibrator.calibrate_decision(
+                finding=finding,
+                measurement=measurement,
+                evidence_items=evidence_items,
+                shared_board=shared_board,
+                base_decision=base_decision,
+                missing_evidence=missing,
+            )
             proposed_text = self._claim_text_from_surface_decision(finding, measurement, decision)
-            evidence_ids = [item.evidence_id for item in evidence_items] or decision.evidence_ids
+            evidence_ids = self._calibrated_evidence_ids_for_decision(
+                shared_board,
+                finding,
+                evidence_items,
+                decision,
+            ) or [item.evidence_id for item in evidence_items] or decision.evidence_ids
             plans.append(
                 AtomicClaimPlan(
                     plan_id=f"p_{finding.finding_id}",
@@ -121,6 +141,58 @@ class ReportSynthesizer:
                 )
             )
         return plans
+
+    def _calibrated_evidence_ids_for_decision(
+        self,
+        shared_board: SharedEvidenceBoard,
+        finding: FindingObject,
+        evidence_items: list,
+        decision: SurfaceDecision,
+    ) -> List[str]:
+        """Create explicit calibrated evidence copies for Stage 3C claims.
+
+        The original EvidenceItem remains untouched. When Stage 3C safely
+        upgrades a previously blocked/proxy item into caveated claim support,
+        this method adds a `cal_*` evidence item so final-prose numeric audits
+        can trace the surface text to a reportable, auditable object.
+        """
+        calibration = decision.debug_payload.get("stage3c_calibration") if decision.debug_payload else None
+        if not calibration or not calibration.get("safe_surface_override"):
+            return []
+        if decision.surface_action not in {ClaimSurfaceAction.ALLOW, ClaimSurfaceAction.CAVEAT}:
+            return []
+
+        out: List[str] = []
+        existing_ids = {item.evidence_id for item in shared_board.evidence_items}
+        for item in evidence_items:
+            if item.evidence_type in {EvidenceType.DEBUG, EvidenceType.LLM_ASSISTED}:
+                continue
+            if item.reportability in {ClaimSurfaceAction.ALLOW, ClaimSurfaceAction.CAVEAT}:
+                out.append(item.evidence_id)
+                continue
+            calibrated_id = f"cal_{item.evidence_id}_{finding.finding_id}"
+            if calibrated_id not in existing_ids:
+                shared_board.add_evidence(
+                    item.model_copy(
+                        update={
+                            "evidence_id": calibrated_id,
+                            "reportability": decision.surface_action,
+                            "allowed_sections": list(decision.allowed_sections),
+                            "forbidden_sections": list(decision.forbidden_sections),
+                            "rationale": f"Stage 3C calibrated copy: {decision.rationale}",
+                            "caveat": "Calibrated evidence copy; original EvidenceItem remains unchanged.",
+                            "debug_payload": {
+                                **item.debug_payload,
+                                "original_evidence_id": item.evidence_id,
+                                "stage3c_calibration": calibration,
+                            },
+                            "created_by": "reportability_calibrator",
+                        }
+                    )
+                )
+                existing_ids.add(calibrated_id)
+            out.append(calibrated_id)
+        return out
 
     def synthesize_celm_sections(self, board: EvidenceBoard, target_section_names: List[str]) -> dict[str, str]:
         """Generate section-specific text for CELM-compatible evaluation outputs.

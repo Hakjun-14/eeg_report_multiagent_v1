@@ -244,6 +244,8 @@ class FinalProseAuditor:
     def match_numeric_to_evidence(self, numeric_mention: NumericMention, evidence_items: Iterable[EvidenceItem]) -> NumericProvenanceMatch:
         section_role = self.router.role_for_section(numeric_mention.section_name).value if numeric_mention.section_name else ""
         unit_matches_wrong_status: list[tuple[EvidenceItem, NumericMatchStatus, str]] = []
+        not_reportable_match: NumericProvenanceMatch | None = None
+        wrong_section_match: NumericProvenanceMatch | None = None
         for item in evidence_items:
             value_match = self._numeric_value_match(numeric_mention, item)
             if value_match is None:
@@ -252,19 +254,21 @@ class FinalProseAuditor:
                 unit_matches_wrong_status.append((item, NumericMatchStatus.UNIT_MISMATCH, f"Evidence {item.evidence_id} matched value but unit differs."))
                 continue
             if item.reportability not in {ClaimSurfaceAction.ALLOW, ClaimSurfaceAction.CAVEAT} or item.evidence_type == EvidenceType.DEBUG:
-                return NumericProvenanceMatch(
+                not_reportable_match = not_reportable_match or NumericProvenanceMatch(
                     numeric_mention=numeric_mention,
                     matched_evidence_id=item.evidence_id,
                     match_status=NumericMatchStatus.MATCHED_BUT_NOT_REPORTABLE,
                     rationale=f"Numeric mention matches evidence {item.evidence_id}, but evidence is {item.reportability.value}/{item.evidence_type.value}.",
                 )
+                continue
             if item.allowed_sections and section_role and section_role not in item.allowed_sections:
-                return NumericProvenanceMatch(
+                wrong_section_match = wrong_section_match or NumericProvenanceMatch(
                     numeric_mention=numeric_mention,
                     matched_evidence_id=item.evidence_id,
                     match_status=NumericMatchStatus.MATCHED_BUT_WRONG_SECTION,
                     rationale=f"Numeric mention matches evidence {item.evidence_id}, but section {section_role} is not allowed.",
                 )
+                continue
             if not self._unit_clinically_meaningful(numeric_mention.unit, item):
                 return NumericProvenanceMatch(
                     numeric_mention=numeric_mention,
@@ -278,6 +282,10 @@ class FinalProseAuditor:
                 match_status=value_match,
                 rationale=f"Numeric mention is supported by reportable evidence {item.evidence_id}.",
             )
+        if wrong_section_match is not None:
+            return wrong_section_match
+        if not_reportable_match is not None:
+            return not_reportable_match
         if unit_matches_wrong_status:
             item, status, rationale = unit_matches_wrong_status[0]
             return NumericProvenanceMatch(numeric_mention=numeric_mention, matched_evidence_id=item.evidence_id, match_status=status, rationale=rationale)
@@ -401,14 +409,19 @@ class FinalProseAuditor:
                     return NumericMatchStatus.RANGE_CONTAINED
             else:
                 mv = float(mention.normalized_value)
-                if isinstance(value, (int, float)) and abs(mv - float(value)) <= max(0.05, abs(float(value)) * 0.01):
+                if isinstance(value, (int, float)) and abs(mv - float(value)) <= self._scalar_tolerance(mv, float(value)):
                     return NumericMatchStatus.EXACT
                 if isinstance(value, dict) and value.get("lower") is not None and value.get("upper") is not None:
                     if float(value["lower"]) <= mv <= float(value["upper"]):
                         return NumericMatchStatus.RANGE_CONTAINED
-                if isinstance(value, list) and any(isinstance(x, (int, float)) and abs(mv - float(x)) <= max(0.05, abs(float(x)) * 0.01) for x in value):
+                if isinstance(value, list) and any(isinstance(x, (int, float)) and abs(mv - float(x)) <= self._scalar_tolerance(mv, float(x)) for x in value):
                     return NumericMatchStatus.EXACT
         return None
+
+    def _scalar_tolerance(self, *values: float) -> float:
+        """Allow display rounding, e.g. 10.7 Hz -> 11 Hz."""
+        scale = max([abs(v) for v in values] + [1.0])
+        return max(0.5, scale * 0.01)
 
     def _range_tolerance(self, *values: float) -> float:
         """Allow clinically harmless display rounding, e.g. 79.8 uV -> 80 uV."""

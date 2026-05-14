@@ -10,6 +10,7 @@ from .llm_report_synthesizer import EvidenceBoardLLMReportSynthesizer, LLMReport
 from .llm_finding_proposer import LLMFindingProposalModule
 from .protocol_state_context_parser import ProtocolStateContextParser
 from .report_synthesizer import ReportSynthesizer
+from .reportability_calibration import EvidenceReportabilityCalibrator, EvidenceWeightingResult
 from .section_router import SectionRouter
 
 __all__ = [
@@ -27,6 +28,8 @@ __all__ = [
     "LLMReportSynthesisResult",
     "LLMFindingProposalModule",
     "ReportSynthesizer",
+    "EvidenceReportabilityCalibrator",
+    "EvidenceWeightingResult",
     "SectionRouter",
     "ClaimVerifier",
 ]
