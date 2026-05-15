@@ -177,3 +177,6 @@ Reason: candidate burden alone is not matched to epileptiform morphology, event 
 
 - Use Stage 2.9 selected50 results to justify reportability calibration only where GT-required claims are present upstream.
 Reason: selected50 GT audit found high upstream availability but low surface rate: GTClaimEvidenceItemAvailability ≈ 0.875, GTClaimAtomicClaimAvailability ≈ 0.919, GTClaimSurfaceRate ≈ 0.096, and SurfacePolicyGapRate ≈ 0.818. This supports targeted Stage 3C/3E calibration for GT-matched, safe evidence while still requiring Stage 3A repairs for claims with no safe Measurement/Finding.
+
+- Add Stage 2.95 generated-report atomic claim comparison for CELM and OURS variants.
+Reason: comparing OURS with provenance audits while leaving CELM only on BLEU/ROUGE would look like a method-favorable evaluation shift. Stage 2.95 therefore applies the same atomic claim extractor to GT reports and generated reports from CELM, `Our_EvidenceGated_v1`, and `FormatFitAggressive_v0`, then reports text-level GT claim recall, generated-claim precision, extra-claim rate, missing-claim rate, and numeric-claim recovery. CELM is not penalized for missing EvidenceBoard traces in this text-only comparison, but its outputs also cannot be claimed to be patient-specific evidence-grounded from this audit alone.

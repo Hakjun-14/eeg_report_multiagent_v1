@@ -57,6 +57,7 @@ eeg-select-human-review-subset = "eeg_report_multiagent.cli.select_human_review_
 eeg-run-batch-final-prose-audit = "eeg_report_multiagent.cli.run_batch_final_prose_audit:main"
 eeg-run-evidence-flow-audit = "eeg_report_multiagent.cli.run_evidence_flow_audit:main"
 eeg-run-gt-required-suppression-audit = "eeg_report_multiagent.cli.run_gt_required_suppression_audit:main"
+eeg-run-generated-claim-variant-audit = "eeg_report_multiagent.cli.run_generated_claim_variant_audit:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
