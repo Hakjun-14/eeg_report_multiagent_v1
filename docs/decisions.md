@@ -167,3 +167,13 @@ Reason: silently mutating EvidenceItem reportability would obscure provenance. S
 
 - Keep FinalProseAuditor as the post-synthesis safety arbiter after calibration.
 Reason: calibration is not a bypass around SurfacePolicy. Selected50 rerendering after Stage 3C preserved zero debug leaks, zero unsupported numerics, zero section leakage, zero seizure-gate violations, and full trace coverage while modestly increasing slot surface rate and reducing useful-suppressed rate.
+
+## 2026-05-15
+- Add Stage 2.9 GT-required suppressed evidence audit before relying on Stage 3C.
+Reason: Stage 2.75 showed many safe-but-suppressed upstream objects, but that alone could favor OURS-specific heuristics. Stage 2.9 uses GT reports only at evaluation time to ask whether clinically required GT claims already existed as Measurement/Finding, EvidenceItem, or AtomicClaimPlan objects before being suppressed. This keeps GT out of inference while grounding the next-stage decision in reference-aligned evidence flow.
+
+- Keep Stage 2.9 matching conservative for unsafe proxy evidence.
+Reason: candidate burden alone is not matched to epileptiform morphology, event candidates are not matched to seizure absence/presence, field concentration ratios and laterality indices are not treated as localization claims by themselves, and global/boundary low-frequency peaks are not treated as PDR. This prevents the audit from falsely justifying reportability relaxation for clinically invalid support.
+
+- Use Stage 2.9 selected50 results to justify reportability calibration only where GT-required claims are present upstream.
+Reason: selected50 GT audit found high upstream availability but low surface rate: GTClaimEvidenceItemAvailability ≈ 0.875, GTClaimAtomicClaimAvailability ≈ 0.919, GTClaimSurfaceRate ≈ 0.096, and SurfacePolicyGapRate ≈ 0.818. This supports targeted Stage 3C/3E calibration for GT-matched, safe evidence while still requiring Stage 3A repairs for claims with no safe Measurement/Finding.
