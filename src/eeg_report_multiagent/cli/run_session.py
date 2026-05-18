@@ -71,6 +71,11 @@ CODE_PATH_TRACE = [
         "functions": ["EvidenceBoardAssembler.merge"],
     },
     {
+        "block": "llm_evidence_grouping",
+        "file": "src/eeg_report_multiagent/modules/llm_evidence_grouper.py",
+        "functions": ["LLMEvidenceGrouper.run"],
+    },
+    {
         "block": "llm_evidence_review",
         "file": "src/eeg_report_multiagent/modules/evidence_reviewer.py",
         "functions": ["EvidenceReviewModule.run"],
@@ -83,7 +88,7 @@ CODE_PATH_TRACE = [
     {
         "block": "llm_adapter",
         "file": "src/eeg_report_multiagent/llm/openai_adapter.py",
-        "functions": ["OpenAIEvidenceReviewAdapter.review"],
+        "functions": ["OpenAIEvidenceGroupingAdapter.group", "OpenAIEvidenceReviewAdapter.review"],
     },
     {
         "block": "synthesis",
@@ -314,6 +319,7 @@ def main() -> None:
     parser.add_argument("--no-langgraph", action="store_true", help="Force sequential fallback runner")
     parser.add_argument("--no-verify", action="store_true", help="Disable optional claim verification")
     parser.add_argument("--monitor", action="store_true", help="Show live stage monitor in terminal")
+    parser.add_argument("--enable-llm-evidence-grouping", action="store_true", help="Use LLM to group typed measurements into EvidenceItems")
     parser.add_argument("--enable-llm-review", action="store_true", help="Run optional evidence-board-only LLM review")
     parser.add_argument("--enable-llm-finding-proposals", action="store_true", help="Run optional measurement-to-finding LLM proposal ablation")
     parser.add_argument("--enable-local-encoder", action="store_true", help="Run bounded local EEG encoder proxy tool inside event module")
@@ -341,6 +347,7 @@ def main() -> None:
         "report_text_path": study_context_text_path,
         "metadata": metadata,
         "verify_claims": not args.no_verify,
+        "enable_llm_evidence_grouping": args.enable_llm_evidence_grouping,
         "enable_llm_review": args.enable_llm_review,
         "enable_llm_finding_proposals": args.enable_llm_finding_proposals,
         "enable_local_encoder": args.enable_local_encoder,
@@ -402,6 +409,7 @@ def main() -> None:
             "use_langgraph": use_langgraph,
             "verify_claims": not args.no_verify,
             "monitor_enabled": args.monitor,
+            "llm_evidence_grouping_enabled": args.enable_llm_evidence_grouping,
             "llm_review_enabled": args.enable_llm_review,
             "llm_finding_proposals_enabled": args.enable_llm_finding_proposals,
             "local_encoder_enabled": args.enable_local_encoder,
@@ -426,6 +434,7 @@ def main() -> None:
         },
         "evidence_board": board,
         "shared_evidence_board": shared_evidence_snapshot,
+        "llm_evidence_grouping": final_state.get("llm_evidence_grouping", {}),
         "agent_deliberations": final_state.get("agent_deliberations", []),
         "llm_finding_proposals": final_state.get("llm_finding_proposals", {}),
         "report_synthesis": {
@@ -445,6 +454,9 @@ def main() -> None:
             "event_findings": len(final_state.get("event_findings", [])),
             "parser_measurements": len(final_state.get("parser_measurements", [])),
             "parser_findings": len(final_state.get("parser_findings", [])),
+            "shared_evidence_items": len(shared_evidence_snapshot.evidence_items) if shared_evidence_snapshot else 0,
+            "llm_evidence_grouping_status": (final_state.get("llm_evidence_grouping", {}) or {}).get("status", ""),
+            "llm_evidence_groups": len(((final_state.get("llm_evidence_grouping", {}) or {}).get("raw_result", {}) or {}).get("evidence_groups", [])),
             "agent_deliberations": len(final_state.get("agent_deliberations", [])),
             "llm_finding_proposals": len((final_state.get("llm_finding_proposals", {}) or {}).get("finding_proposals", [])),
             "verification_records": len(final_state.get("verification", [])),
@@ -459,6 +471,7 @@ def main() -> None:
         },
     }
     _write_json(out_dir / "inference_trace.json", inference_trace)
+    _write_json(out_dir / "llm_evidence_grouping.json", final_state.get("llm_evidence_grouping", {}))
     _write_json(out_dir / "agent_deliberations.json", final_state.get("agent_deliberations", []))
     _write_json(out_dir / "llm_finding_proposals.json", final_state.get("llm_finding_proposals", {}))
     (out_dir / "run.log").write_text("\n".join(final_state.get("run_log", [])), encoding="utf-8")
@@ -478,6 +491,7 @@ def main() -> None:
         "surface_decisions.json",
         "final_prose_audit.json",
         "inference_trace.json",
+        "llm_evidence_grouping.json",
         "agent_deliberations.json",
         "llm_finding_proposals.json",
         "run.log",
@@ -490,7 +504,7 @@ def main() -> None:
         "research_contract": {
             "raw_eeg_external_api": "forbidden",
             "gt_report_as_inference_input": "forbidden",
-            "intermediate_representation": "measurement -> finding -> evidence_board -> report_text",
+            "intermediate_representation": "measurement -> evidence_item -> atomic_claim_plan -> surface_decision -> report_text",
             "primary_artifacts": ["manifest.json", "evidence_board.json", "surface_decisions.json", "inference_trace.json"],
             "human_readable_artifacts": ["detail.txt", "impression.txt"],
         },

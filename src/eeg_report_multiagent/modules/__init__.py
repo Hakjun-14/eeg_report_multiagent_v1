@@ -8,6 +8,7 @@ from .evidence_reviewer import EvidenceReviewModule
 from .final_prose_auditor import FinalProseAuditor
 from .llm_report_synthesizer import EvidenceBoardLLMReportSynthesizer, LLMReportSynthesisResult
 from .llm_finding_proposer import LLMFindingProposalModule
+from .llm_evidence_grouper import LLMEvidenceGrouper
 from .protocol_state_context_parser import ProtocolStateContextParser
 from .report_synthesizer import ReportSynthesizer
 from .reportability_calibration import EvidenceReportabilityCalibrator, EvidenceWeightingResult
@@ -27,6 +28,7 @@ __all__ = [
     "EvidenceBoardLLMReportSynthesizer",
     "LLMReportSynthesisResult",
     "LLMFindingProposalModule",
+    "LLMEvidenceGrouper",
     "ReportSynthesizer",
     "EvidenceReportabilityCalibrator",
     "EvidenceWeightingResult",

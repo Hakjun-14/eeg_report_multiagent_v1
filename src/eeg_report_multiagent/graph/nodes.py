@@ -20,6 +20,7 @@ from eeg_report_multiagent.modules import (
     EvidenceReviewModule,
     EventModule,
     LLMFindingProposalModule,
+    LLMEvidenceGrouper,
     ProtocolStateContextParser,
     ReportSynthesizer,
 )
@@ -172,8 +173,30 @@ def evidence_merge_node(state: Dict) -> Dict:
             state.get("parser_tool_invocations", []),
         ],
     )
+    if state.get("enable_llm_evidence_grouping", False):
+        grouper = LLMEvidenceGrouper()
+        grouping = grouper.run(recording_id=state["manifest"].session_id, measurements=board.measurements)
+        board.shared_evidence_board = grouping["shared_evidence_board"]
+        state["llm_evidence_grouping"] = {
+            key: value for key, value in grouping.items() if key != "shared_evidence_board"
+        }
+        _append_log(
+            state,
+            "LLM evidence grouping completed "
+            f"groups={len(board.shared_evidence_board.evidence_items)} raw_eeg_used={grouping.get('raw_eeg_used')} "
+            f"gt_report_used={grouping.get('gt_report_used')}",
+        )
+    else:
+        state["llm_evidence_grouping"] = {
+            "status": "skipped",
+            "summary": "",
+            "raw_eeg_used": False,
+            "gt_report_used": False,
+            "raw_result": {"evidence_groups": []},
+        }
     state["evidence_board"] = board
-    _append_log(state, f"Evidence board assembled with {len(board.findings)} findings")
+    shared_count = len(board.ensure_shared_evidence_board().evidence_items)
+    _append_log(state, f"Evidence board assembled with {len(board.findings)} findings and {shared_count} evidence items")
     return state
 
 

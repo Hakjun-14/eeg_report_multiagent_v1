@@ -49,6 +49,8 @@ def _write_csv(path: Path, rows: List[Dict[str, Any]]) -> None:
         "all_target_sections_generated",
         "llm_finding_proposal_status",
         "llm_finding_proposals",
+        "llm_evidence_grouping_status",
+        "llm_evidence_groups",
     ]
     with path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -96,6 +98,8 @@ def _summarize_success(row_index: int, row: Dict[str, str], artifact_dir: Path, 
     input_contract = audit.get("input_contract", {}) if isinstance(audit.get("input_contract"), dict) else {}
     section_audit = _load_json(artifact_dir / "section_contract_audit.json")
     proposal_payload = _load_json(artifact_dir / "llm_finding_proposals.json")
+    grouping_payload = _load_json(artifact_dir / "llm_evidence_grouping.json")
+    grouping_result = grouping_payload.get("raw_result", {}) if isinstance(grouping_payload.get("raw_result"), dict) else {}
     return {
         "row_index": row_index,
         "report_id": report_id,
@@ -121,6 +125,8 @@ def _summarize_success(row_index: int, row: Dict[str, str], artifact_dir: Path, 
         "all_target_sections_generated": section_audit.get("all_target_sections_generated", ""),
         "llm_finding_proposal_status": proposal_payload.get("status", ""),
         "llm_finding_proposals": len(proposal_payload.get("finding_proposals", []) or []),
+        "llm_evidence_grouping_status": grouping_payload.get("status", ""),
+        "llm_evidence_groups": len(grouping_result.get("evidence_groups", []) or []),
     }
 
 
@@ -139,6 +145,7 @@ def main() -> None:
     parser.add_argument("--no-langgraph", action="store_true")
     parser.add_argument("--no-verify", action="store_true")
     parser.add_argument("--enable-llm-review", action="store_true")
+    parser.add_argument("--enable-llm-evidence-grouping", action="store_true")
     parser.add_argument("--enable-llm-finding-proposals", action="store_true")
     parser.add_argument("--enable-local-encoder", action="store_true")
     parser.add_argument("--resume", action="store_true", help="Skip rows that already have method_audit.json and celm_generated_report.json")
@@ -189,6 +196,7 @@ def main() -> None:
         "use_langgraph": not args.no_langgraph,
         "verify_claims": not args.no_verify,
         "enable_local_encoder": args.enable_local_encoder,
+        "enable_llm_evidence_grouping": args.enable_llm_evidence_grouping,
         "enable_llm_finding_proposals": args.enable_llm_finding_proposals,
         "celm_results_dir": str(celm_results_dir),
         "resume": args.resume,
@@ -242,6 +250,8 @@ def main() -> None:
             cmd.append("--no-langgraph")
         if args.no_verify:
             cmd.append("--no-verify")
+        if args.enable_llm_evidence_grouping:
+            cmd.append("--enable-llm-evidence-grouping")
         if args.enable_llm_review:
             cmd.append("--enable-llm-review")
         if args.enable_llm_finding_proposals:

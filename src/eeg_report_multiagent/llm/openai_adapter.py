@@ -217,6 +217,77 @@ FINDING_PROPOSAL_SCHEMA: Dict[str, Any] = {
 }
 
 
+EVIDENCE_GROUPING_SCHEMA: Dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "summary": {"type": "string"},
+        "evidence_groups": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "evidence_id": {"type": "string"},
+                    "clinical_target": {
+                        "type": "string",
+                        "enum": [
+                            "pdr",
+                            "background_slowing",
+                            "background_amplitude",
+                            "excess_beta",
+                            "epileptiform_morphology",
+                            "event_candidate",
+                            "seizure_evidence",
+                            "localization",
+                            "state",
+                            "protocol",
+                            "artifact",
+                            "uncertainty",
+                            "context",
+                            "unknown",
+                        ],
+                    },
+                    "evidence_type": {
+                        "type": "string",
+                        "enum": ["direct", "proxy", "metadata", "debug", "derived", "llm_assisted"],
+                    },
+                    "value_summary": {"type": "string"},
+                    "linked_measurement_ids": {"type": "array", "items": {"type": "string"}},
+                    "allowed_sections": {"type": "array", "items": {"type": "string"}},
+                    "clinical_knowledge_reference": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "reference_type": {
+                                "type": "string",
+                                "enum": ["provided_guideline", "required_but_not_provided", "internal_reporting_standard"],
+                            },
+                            "statement": {"type": "string"},
+                        },
+                        "required": ["reference_type", "statement"],
+                    },
+                    "rationale": {"type": "string"},
+                },
+                "required": [
+                    "evidence_id",
+                    "clinical_target",
+                    "evidence_type",
+                    "value_summary",
+                    "linked_measurement_ids",
+                    "allowed_sections",
+                    "clinical_knowledge_reference",
+                    "rationale",
+                ],
+            },
+        },
+        "raw_eeg_used": {"type": "boolean"},
+        "gt_report_used": {"type": "boolean"},
+    },
+    "required": ["summary", "evidence_groups", "raw_eeg_used", "gt_report_used"],
+}
+
+
 
 class OpenAIEvidenceReviewAdapter:
     """Structured OpenAI adapter for evidence-board-only review.
@@ -451,6 +522,87 @@ class OpenAIFindingProposalAdapter:
         if not text:
             raise RuntimeError("OpenAI finding proposal returned no text payload")
         return json.loads(text)
+
+    def _extract_text(self, data: Dict[str, Any]) -> str:
+        if isinstance(data.get("output_text"), str):
+            return data["output_text"]
+        chunks: list[str] = []
+        for item in data.get("output", []):
+            for content in item.get("content", []):
+                if content.get("type") in {"output_text", "text"} and isinstance(content.get("text"), str):
+                    chunks.append(content["text"])
+        return "".join(chunks)
+
+
+class OpenAIEvidenceGroupingAdapter:
+    """LLM adapter for grouping typed measurements into EvidenceItems."""
+
+    def __init__(self, model: str | None = None, timeout_sec: int = 90) -> None:
+        self.model = model or os.getenv("OPENAI_EVIDENCE_GROUPING_MODEL", "gpt-4o-mini")
+        self.timeout_sec = timeout_sec
+
+    def group(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise RuntimeError("OPENAI_API_KEY is not set")
+
+        prompt = {
+            "task": (
+                "Act as a clinical neurophysiology evidence organizer. Group typed EEG measurements "
+                "into a small number of patient-specific EvidenceItems. Do not write report prose."
+            ),
+            "constraints": [
+                "Use only measurement IDs present in the payload.",
+                "Do not inspect, request, or infer from raw EEG; raw EEG is not present.",
+                "Do not use GT/reference report text; it is not present.",
+                "Do not create seizure_evidence from event_candidate measurements.",
+                "Do not call global or boundary 0.5 Hz activity a PDR.",
+                "Candidate burden, likelihood, support score, ratios, and train duration are proxy/debug unless combined with appropriate clinical evidence.",
+                "Keep evidence groups compact: group related measurements into clinical targets such as pdr, background_slowing, localization, protocol, state.",
+                "Attach a clinical_knowledge_reference for each group. If no source is provided, use required_but_not_provided rather than inventing a citation.",
+            ],
+            "payload": payload,
+        }
+        body = {
+            "model": self.model,
+            "input": [
+                {
+                    "role": "system",
+                    "content": "You group structured EEG measurements into typed evidence groups for an assistive EEG report system.",
+                },
+                {"role": "user", "content": json.dumps(prompt, ensure_ascii=False)},
+            ],
+            "text": {
+                "format": {
+                    "type": "json_schema",
+                    "name": "eeg_evidence_grouping",
+                    "strict": True,
+                    "schema": EVIDENCE_GROUPING_SCHEMA,
+                }
+            },
+        }
+        request = urllib.request.Request(
+            "https://api.openai.com/v1/responses",
+            data=json.dumps(body).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout_sec) as response:
+                data = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="ignore")
+            raise RuntimeError(f"OpenAI evidence grouping failed: {exc.code}: {detail}") from exc
+
+        text = self._extract_text(data)
+        if not text:
+            raise RuntimeError("OpenAI evidence grouping returned no text payload")
+        result = json.loads(text)
+        result["_response_id"] = data.get("id")
+        return result
 
     def _extract_text(self, data: Dict[str, Any]) -> str:
         if isinstance(data.get("output_text"), str):

@@ -1,3 +1,13 @@
-from .openai_adapter import OpenAIEvidenceReviewAdapter, OpenAIFindingProposalAdapter, OpenAIReportSynthesisAdapter
+from .openai_adapter import (
+    OpenAIEvidenceGroupingAdapter,
+    OpenAIEvidenceReviewAdapter,
+    OpenAIFindingProposalAdapter,
+    OpenAIReportSynthesisAdapter,
+)
 
-__all__ = ["OpenAIEvidenceReviewAdapter", "OpenAIFindingProposalAdapter", "OpenAIReportSynthesisAdapter"]
+__all__ = [
+    "OpenAIEvidenceGroupingAdapter",
+    "OpenAIEvidenceReviewAdapter",
+    "OpenAIFindingProposalAdapter",
+    "OpenAIReportSynthesisAdapter",
+]

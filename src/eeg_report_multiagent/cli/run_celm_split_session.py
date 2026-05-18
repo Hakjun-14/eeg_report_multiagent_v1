@@ -50,6 +50,7 @@ def main() -> None:
     parser.add_argument("--monitor", action="store_true")
     parser.add_argument("--no-langgraph", action="store_true")
     parser.add_argument("--no-verify", action="store_true")
+    parser.add_argument("--enable-llm-evidence-grouping", action="store_true")
     parser.add_argument("--enable-llm-review", action="store_true")
     parser.add_argument("--enable-llm-finding-proposals", action="store_true")
     parser.add_argument("--enable-local-encoder", action="store_true")
@@ -91,6 +92,8 @@ def main() -> None:
         cmd.append("--no-langgraph")
     if args.no_verify:
         cmd.append("--no-verify")
+    if args.enable_llm_evidence_grouping:
+        cmd.append("--enable-llm-evidence-grouping")
     if args.enable_llm_review:
         cmd.append("--enable-llm-review")
     if args.enable_llm_finding_proposals:
