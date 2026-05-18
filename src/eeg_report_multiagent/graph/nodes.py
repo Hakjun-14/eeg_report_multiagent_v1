@@ -19,6 +19,7 @@ from eeg_report_multiagent.modules import (
     EvidenceBoardAssembler,
     EvidenceReviewModule,
     EventModule,
+    LLMClaimPlanner,
     LLMFindingProposalModule,
     LLMEvidenceGrouper,
     ProtocolStateContextParser,
@@ -238,10 +239,40 @@ def finding_proposal_node(state: Dict) -> Dict:
 
 def report_synthesize_node(state: Dict) -> Dict:
     synth = ReportSynthesizer()
-    detail, impression, claims = synth.synthesize(state["evidence_board"])
+    claim_plan_override = None
+    if state.get("enable_llm_claim_planning", False):
+        planner = LLMClaimPlanner()
+        planning = planner.run(state["evidence_board"].ensure_shared_evidence_board())
+        claim_plan_override = planning["atomic_claim_plan"]
+        state["llm_claim_planning"] = {
+            key: value for key, value in planning.items() if key != "atomic_claim_plan"
+        }
+        _append_log(
+            state,
+            "LLM claim planning completed "
+            f"claims={len(claim_plan_override)} raw_eeg_used={planning.get('raw_eeg_used')} "
+            f"gt_report_used={planning.get('gt_report_used')}",
+        )
+    else:
+        state["llm_claim_planning"] = {
+            "status": "skipped",
+            "summary": "",
+            "raw_eeg_used": False,
+            "gt_report_used": False,
+            "raw_result": {"atomic_claims": []},
+        }
+
+    detail, impression, claims = synth.synthesize(state["evidence_board"], claim_plan_override=claim_plan_override)
+    atomic_claim_plan = claim_plan_override if claim_plan_override is not None else synth.build_atomic_claim_plan(state["evidence_board"])
+    surface_decisions = synth.build_surface_decisions(
+        atomic_claim_plan,
+        state["evidence_board"].ensure_shared_evidence_board(),
+    )
     state["detail_section"] = detail
     state["impression_section"] = impression
     state["evidence_board"].claims = claims
+    state["atomic_claim_plan"] = atomic_claim_plan
+    state["surface_decisions"] = surface_decisions
     _append_log(state, f"Synthesized report with {len(claims)} claims")
     return state
 
@@ -269,6 +300,9 @@ def finalize_node(state: Dict) -> Dict:
         "evidence_board": state.get("evidence_board"),
         "agent_deliberations": state.get("agent_deliberations", []),
         "llm_finding_proposals": state.get("llm_finding_proposals", {}),
+        "llm_claim_planning": state.get("llm_claim_planning", {}),
+        "atomic_claim_plan": state.get("atomic_claim_plan", []),
+        "surface_decisions": state.get("surface_decisions", []),
         "detail": state.get("detail_section"),
         "impression": state.get("impression_section"),
         "verification": state.get("verification", []),

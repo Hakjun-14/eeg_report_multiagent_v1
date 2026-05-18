@@ -38,6 +38,7 @@ class FinalProseAuditor:
         "laterality index": DebugLeakType.PROXY_CONCEPT,
         "peak laterality index": DebugLeakType.PROXY_CONCEPT,
         "bifrontal spread tendency": DebugLeakType.PROXY_CONCEPT,
+        "bifrontal ratio": DebugLeakType.PROXY_CONCEPT,
         "morphology screen": DebugLeakType.PROXY_CONCEPT,
         "morphology proxy": DebugLeakType.PROXY_CONCEPT,
         "support score": DebugLeakType.DEBUG_SCORE,
@@ -45,6 +46,17 @@ class FinalProseAuditor:
         "field concentration ratio": DebugLeakType.PROXY_CONCEPT,
         "beta ratio": DebugLeakType.DEBUG_SCORE,
         "slowing score": DebugLeakType.DEBUG_SCORE,
+        "ratio of": DebugLeakType.DEBUG_SCORE,
+        "score of": DebugLeakType.DEBUG_SCORE,
+        "alpha ratio": DebugLeakType.DEBUG_SCORE,
+        "symmetry score": DebugLeakType.DEBUG_SCORE,
+        "confidence score": DebugLeakType.DEBUG_SCORE,
+        "confidence assessment": DebugLeakType.DEBUG_SCORE,
+        "confidence in this assessment": DebugLeakType.DEBUG_SCORE,
+        "confidence in the determination": DebugLeakType.DEBUG_SCORE,
+        "support being marked": DebugLeakType.DEBUG_SCORE,
+        "analyzed scores": DebugLeakType.DEBUG_SCORE,
+        "concentration ratios": DebugLeakType.PROXY_CONCEPT,
         "weak evidence": DebugLeakType.INTERNAL_REVIEWER_TEXT,
         "do_not_claim": DebugLeakType.INTERNAL_REVIEWER_TEXT,
         "claim_constraints": DebugLeakType.INTERNAL_REVIEWER_TEXT,
@@ -422,7 +434,7 @@ class FinalProseAuditor:
         return [_SectionText(name, text)]
 
     def _numeric_value_match(self, mention: NumericMention, item: EvidenceItem) -> NumericMatchStatus | None:
-        candidates = [item.normalized_value, item.value]
+        candidates = [candidate for root in [item.normalized_value, item.value] for candidate in self._numeric_candidates(root)]
         for value in candidates:
             if value is None:
                 continue
@@ -449,6 +461,25 @@ class FinalProseAuditor:
                 if isinstance(value, list) and any(isinstance(x, (int, float)) and abs(mv - float(x)) <= self._scalar_tolerance(mv, float(x)) for x in value):
                     return NumericMatchStatus.EXACT
         return None
+
+    def _numeric_candidates(self, value: Any) -> List[Any]:
+        if value is None:
+            return []
+        if isinstance(value, (int, float)):
+            return [value]
+        if isinstance(value, list):
+            out: List[Any] = []
+            for item in value:
+                out.extend(self._numeric_candidates(item))
+            return out
+        if isinstance(value, dict):
+            out: List[Any] = []
+            if value.get("lower") is not None or value.get("upper") is not None:
+                out.append(value)
+            for item in value.values():
+                out.extend(self._numeric_candidates(item))
+            return out
+        return []
 
     def _scalar_tolerance(self, *values: float) -> float:
         """Allow display rounding, e.g. 10.7 Hz -> 11 Hz."""

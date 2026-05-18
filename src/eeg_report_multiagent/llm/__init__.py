@@ -1,4 +1,5 @@
 from .openai_adapter import (
+    OpenAIClaimPlanningAdapter,
     OpenAIEvidenceGroupingAdapter,
     OpenAIEvidenceReviewAdapter,
     OpenAIFindingProposalAdapter,
@@ -6,6 +7,7 @@ from .openai_adapter import (
 )
 
 __all__ = [
+    "OpenAIClaimPlanningAdapter",
     "OpenAIEvidenceGroupingAdapter",
     "OpenAIEvidenceReviewAdapter",
     "OpenAIFindingProposalAdapter",

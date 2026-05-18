@@ -70,9 +70,11 @@ class SurfacePolicy:
 
     FORBIDDEN_SURFACE_TERMS = (
         "candidate burden",
+        "burden ratio",
         "longest candidate train",
         "laterality index",
         "bifrontal spread tendency",
+        "bifrontal ratio",
         "morphology screen",
         "support score",
         "likelihood score",
@@ -86,6 +88,18 @@ class SurfacePolicy:
         "low-frequency boundary peak",
         "low-frequency boundary spectral peak",
         "support/likelihood",
+        "ratio of",
+        "slowing score",
+        "score of",
+        "alpha ratio",
+        "symmetry score",
+        "confidence score",
+        "confidence assessment",
+        "confidence in this assessment",
+        "confidence in the determination",
+        "support being marked",
+        "analyzed scores",
+        "concentration ratios",
     )
 
     def decide(

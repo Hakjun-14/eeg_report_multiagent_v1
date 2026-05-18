@@ -288,6 +288,50 @@ EVIDENCE_GROUPING_SCHEMA: Dict[str, Any] = {
 }
 
 
+CLAIM_PLANNING_SCHEMA: Dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "summary": {"type": "string"},
+        "atomic_claims": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "plan_id": {"type": "string"},
+                    "claim_type": {"type": "string"},
+                    "proposed_text": {"type": "string"},
+                    "evidence_ids": {"type": "array", "items": {"type": "string"}},
+                    "surface_action": {
+                        "type": "string",
+                        "enum": ["allow", "caveat", "block", "debug_only"],
+                    },
+                    "allowed_sections": {"type": "array", "items": {"type": "string"}},
+                    "required_evidence": {"type": "array", "items": {"type": "string"}},
+                    "missing_evidence": {"type": "array", "items": {"type": "string"}},
+                    "rationale": {"type": "string"},
+                },
+                "required": [
+                    "plan_id",
+                    "claim_type",
+                    "proposed_text",
+                    "evidence_ids",
+                    "surface_action",
+                    "allowed_sections",
+                    "required_evidence",
+                    "missing_evidence",
+                    "rationale",
+                ],
+            },
+        },
+        "raw_eeg_used": {"type": "boolean"},
+        "gt_report_used": {"type": "boolean"},
+    },
+    "required": ["summary", "atomic_claims", "raw_eeg_used", "gt_report_used"],
+}
+
+
 
 class OpenAIEvidenceReviewAdapter:
     """Structured OpenAI adapter for evidence-board-only review.
@@ -600,6 +644,88 @@ class OpenAIEvidenceGroupingAdapter:
         text = self._extract_text(data)
         if not text:
             raise RuntimeError("OpenAI evidence grouping returned no text payload")
+        result = json.loads(text)
+        result["_response_id"] = data.get("id")
+        return result
+
+    def _extract_text(self, data: Dict[str, Any]) -> str:
+        if isinstance(data.get("output_text"), str):
+            return data["output_text"]
+        chunks: list[str] = []
+        for item in data.get("output", []):
+            for content in item.get("content", []):
+                if content.get("type") in {"output_text", "text"} and isinstance(content.get("text"), str):
+                    chunks.append(content["text"])
+        return "".join(chunks)
+
+
+class OpenAIClaimPlanningAdapter:
+    """LLM adapter for EvidenceItem-to-AtomicClaimPlan planning."""
+
+    def __init__(self, model: str | None = None, timeout_sec: int = 90) -> None:
+        self.model = model or os.getenv("OPENAI_CLAIM_PLANNING_MODEL", "gpt-4o-mini")
+        self.timeout_sec = timeout_sec
+
+    def plan(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise RuntimeError("OPENAI_API_KEY is not set")
+
+        prompt = {
+            "task": (
+                "Act as a clinical EEG claim planner. Convert typed patient-specific EvidenceItems "
+                "into concise AtomicClaimPlan candidates. Do not write full report sections."
+            ),
+            "constraints": [
+                "Use only evidence_ids present in the payload.",
+                "Do not inspect, request, or infer from raw EEG; raw EEG is not present.",
+                "Do not use GT/reference report text; it is not present.",
+                "Include clinically meaningful numeric values only when they are present in linked EvidenceItems.",
+                "Do not mention candidate burden, burden ratio, support score, likelihood score, field concentration ratio, laterality index, bifrontal ratio, ratio of, train duration, slowing score, score of, alpha ratio, symmetry score, confidence score, confidence assessment, confidence in this assessment, confidence in the determination, support being marked, analyzed scores, concentration ratios, missing_slots, or values_preview.",
+                "Do not create seizure claims unless linked evidence has clinical_target=seizure_evidence and evidence_type is direct, derived, or metadata.",
+                "Do not call global or boundary 0.5 Hz activity a PDR.",
+                "Use caveated wording when state, morphology, localization, or reactivity support is incomplete.",
+                "Return block/debug_only for proxy or internal evidence that cannot safely surface.",
+            ],
+            "payload": payload,
+        }
+        body = {
+            "model": self.model,
+            "input": [
+                {
+                    "role": "system",
+                    "content": "You plan atomic clinical EEG claims from typed evidence only. Safety gates run after you.",
+                },
+                {"role": "user", "content": json.dumps(prompt, ensure_ascii=False)},
+            ],
+            "text": {
+                "format": {
+                    "type": "json_schema",
+                    "name": "eeg_claim_planning",
+                    "strict": True,
+                    "schema": CLAIM_PLANNING_SCHEMA,
+                }
+            },
+        }
+        request = urllib.request.Request(
+            "https://api.openai.com/v1/responses",
+            data=json.dumps(body).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout_sec) as response:
+                data = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="ignore")
+            raise RuntimeError(f"OpenAI claim planning failed: {exc.code}: {detail}") from exc
+
+        text = self._extract_text(data)
+        if not text:
+            raise RuntimeError("OpenAI claim planning returned no text payload")
         result = json.loads(text)
         result["_response_id"] = data.get("id")
         return result

@@ -34,9 +34,13 @@ class ReportSynthesizer:
         self.surface_policy = surface_policy or SurfacePolicy()
         self.reportability_calibrator = reportability_calibrator or EvidenceReportabilityCalibrator()
 
-    def synthesize(self, board: EvidenceBoard) -> tuple[ReportSection, ReportSection, List[ClaimRecord]]:
+    def synthesize(
+        self,
+        board: EvidenceBoard,
+        claim_plan_override: List[AtomicClaimPlan] | None = None,
+    ) -> tuple[ReportSection, ReportSection, List[ClaimRecord]]:
         claims: List[ClaimRecord] = []
-        claim_plan = self.build_atomic_claim_plan(board)
+        claim_plan = claim_plan_override if claim_plan_override is not None else self.build_atomic_claim_plan(board)
         shared_board = board.ensure_shared_evidence_board()
         surface_decisions = self.build_surface_decisions(claim_plan, shared_board)
         detail_lines = self._section_lines_from_plans(claim_plan, SectionRole.DETAIL, surface_decisions)
