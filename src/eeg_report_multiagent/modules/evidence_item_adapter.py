@@ -73,6 +73,11 @@ def build_shared_evidence_board(
     measurement_index = {measurement.measurement_id: measurement for measurement in measurement_list}
     board = SharedEvidenceBoard(board_id=board_id or f"seb_{recording_id}", recording_id=recording_id)
 
+    if not finding_list:
+        for item in grouped_evidence_items_from_measurements(measurement_list):
+            board.add_evidence(item)
+        return board
+
     linked_measurements: set[str] = set()
     for finding in finding_list:
         linked = [measurement_index[mid] for mid in finding.measurement_ids if mid in measurement_index]
@@ -86,6 +91,170 @@ def build_shared_evidence_board(
         if measurement.measurement_id not in linked_measurements:
             board.add_evidence(evidence_item_from_measurement(measurement))
     return board
+
+
+def grouped_evidence_items_from_measurements(measurements: Iterable[MeasurementValue]) -> List[EvidenceItem]:
+    """Build clinically grouped evidence directly from deterministic measurements.
+
+    This is the new runtime path. `Finding` remains loadable for old artifacts,
+    but new sessions should group measurements by clinical target before claim
+    planning rather than creating one finding/evidence/claim per tool output.
+    """
+
+    measurement_list = list(measurements)
+    groups: dict[str, list[MeasurementValue]] = {}
+    for measurement in measurement_list:
+        group_key = _measurement_group_key(measurement)
+        groups.setdefault(group_key, []).append(measurement)
+
+    out: list[EvidenceItem] = []
+    for group_key, group_measurements in groups.items():
+        item = _grouped_evidence_item(group_key, group_measurements)
+        if item is not None:
+            out.append(item)
+    return out
+
+
+def _measurement_group_key(measurement: MeasurementValue) -> str:
+    name = measurement.measurement_name
+    if name.startswith("pdr_") or name.startswith("background_ap_organization") or name == "background_reactivity_status":
+        return "pdr"
+    if name == "background_amplitude_range_uv":
+        return "background_amplitude"
+    if name in {"background_dominant_frequency_hz", "slowing_score"}:
+        return "background_slowing"
+    if name == "beta_excess_score":
+        return "excess_beta"
+    if name.startswith("protocol_state") or name.startswith("state_") or name in {"sleep_architecture_status"}:
+        return "state"
+    if name.startswith("protocol_") or name in {"hyperventilation_status", "photic_stimulation_status"} or name.endswith("_availability") or name.endswith("_presence"):
+        return "protocol"
+    if name in _EVENT_CANDIDATE_MEASUREMENTS:
+        return "event_candidate"
+    if name in _LOCALIZATION_PROXY_MEASUREMENTS:
+        return "localization"
+    if name in _MORPHOLOGY_PROXY_MEASUREMENTS or name in {"event_morphology_support_score", "epileptiform_candidate_likelihood_score"}:
+        return "epileptiform_morphology"
+    if "seizure" in name:
+        return "seizure_evidence"
+    if name.startswith("relative_bandpower_"):
+        return "background_bandpower_debug"
+    return f"measurement:{name}"
+
+
+def _grouped_evidence_item(group_key: str, measurements: list[MeasurementValue]) -> EvidenceItem | None:
+    if not measurements:
+        return None
+    target, evidence_type, reportability, source_module, allowed = _group_classification(group_key, measurements)
+    provenance = [measurement.provenance for measurement in measurements]
+    value = _group_value(group_key, measurements)
+    return EvidenceItem(
+        evidence_id=f"evgrp_{group_key.replace(':', '_')}",
+        source_module=source_module,
+        evidence_type=evidence_type,
+        clinical_target=target,
+        value=value,
+        unit=None,
+        normalized_value=value,
+        confidence=None,
+        reliability=None,
+        time_provenance=_time_dict(provenance),
+        space_provenance=_space_dict(provenance),
+        measurement_ids=[measurement.measurement_id for measurement in measurements],
+        finding_ids=[],
+        reportability=reportability,
+        allowed_sections=allowed,
+        rationale=None,
+        caveat=None,
+        debug_payload={
+            "measurement_names": [measurement.measurement_name for measurement in measurements],
+            "group_key": group_key,
+            "legacy_finding_removed": True,
+        },
+        created_by="measurement_grouped_evidence_builder",
+        created_at=EvidenceItem.now_iso(),
+    )
+
+
+def _group_classification(
+    group_key: str,
+    measurements: list[MeasurementValue],
+) -> tuple[ClinicalTarget, EvidenceType, ClaimSurfaceAction, str, list[str]]:
+    if group_key == "pdr":
+        return ClinicalTarget.PDR, EvidenceType.DERIVED, ClaimSurfaceAction.CAVEAT, "background", [SectionRole.BACKGROUND.value, SectionRole.DETAIL.value, SectionRole.SLEEP.value]
+    if group_key == "background_amplitude":
+        return ClinicalTarget.BACKGROUND_AMPLITUDE, EvidenceType.DERIVED, ClaimSurfaceAction.CAVEAT, "background", [SectionRole.BACKGROUND.value, SectionRole.DETAIL.value]
+    if group_key == "background_slowing":
+        return ClinicalTarget.BACKGROUND_SLOWING, EvidenceType.DERIVED, ClaimSurfaceAction.CAVEAT, "background", [SectionRole.BACKGROUND.value, SectionRole.DETAIL.value, SectionRole.IMPRESSION.value]
+    if group_key == "excess_beta":
+        return ClinicalTarget.EXCESS_BETA, EvidenceType.DERIVED, ClaimSurfaceAction.CAVEAT, "background", [SectionRole.BACKGROUND.value, SectionRole.DETAIL.value, SectionRole.IMPRESSION.value]
+    if group_key == "background_bandpower_debug":
+        return ClinicalTarget.UNCERTAINTY, EvidenceType.DEBUG, ClaimSurfaceAction.DEBUG_ONLY, "background", []
+    if group_key == "state":
+        return ClinicalTarget.STATE, EvidenceType.METADATA, ClaimSurfaceAction.ALLOW, "state_protocol", [SectionRole.BACKGROUND.value, SectionRole.DETAIL.value, SectionRole.SLEEP.value]
+    if group_key == "protocol":
+        return ClinicalTarget.PROTOCOL, EvidenceType.METADATA, ClaimSurfaceAction.ALLOW, "state_protocol", [SectionRole.DETAIL.value, SectionRole.BACKGROUND.value]
+    if group_key == "event_candidate":
+        return ClinicalTarget.EVENT_CANDIDATE, EvidenceType.PROXY, ClaimSurfaceAction.DEBUG_ONLY, "event", []
+    if group_key == "localization":
+        return ClinicalTarget.LOCALIZATION, EvidenceType.PROXY, ClaimSurfaceAction.DEBUG_ONLY, "localization", []
+    if group_key == "epileptiform_morphology":
+        return ClinicalTarget.EPILEPTIFORM_MORPHOLOGY, EvidenceType.DEBUG, ClaimSurfaceAction.DEBUG_ONLY, "event", []
+    if group_key == "seizure_evidence":
+        return ClinicalTarget.SEIZURE_EVIDENCE, EvidenceType.DEBUG, ClaimSurfaceAction.DEBUG_ONLY, "seizure", []
+    return ClinicalTarget.UNKNOWN, EvidenceType.DEBUG, ClaimSurfaceAction.DEBUG_ONLY, "unknown", []
+
+
+def _group_value(group_key: str, measurements: list[MeasurementValue]) -> Any:
+    by_name = {measurement.measurement_name: measurement for measurement in measurements}
+    if group_key == "pdr":
+        freq = by_name.get("pdr_candidate_frequency_hz")
+        return {
+            "frequency_hz": _numeric(freq),
+            "pdr_supported": (freq.metadata.get("pdr_supported") if freq else None),
+            "posterior_alpha_ratio": (freq.metadata.get("posterior_alpha_ratio") if freq else None),
+            "posterior_anterior_alpha_ratio": (freq.metadata.get("posterior_anterior_alpha_ratio") if freq else None),
+            "symmetry_score": _numeric(by_name.get("pdr_symmetry_score")),
+            "reactivity": _status(by_name.get("background_reactivity_status")),
+        }
+    if group_key == "background_amplitude":
+        measurement = by_name.get("background_amplitude_range_uv")
+        return _range_or_value(measurement)
+    if group_key in {"background_slowing", "excess_beta"}:
+        return {measurement.measurement_name: _range_or_value(measurement) for measurement in measurements}
+    if group_key in {"state", "protocol"}:
+        return {measurement.measurement_name: _status_or_value(measurement) for measurement in measurements}
+    if group_key in {"event_candidate", "localization", "epileptiform_morphology", "seizure_evidence"}:
+        return {measurement.measurement_name: _debug_value(measurement) for measurement in measurements}
+    return {measurement.measurement_name: _debug_value(measurement) for measurement in measurements}
+
+
+def _numeric(measurement: MeasurementValue | None) -> float | None:
+    if measurement is None or measurement.quantitation is None:
+        return None
+    return measurement.quantitation.exact
+
+
+def _range_or_value(measurement: MeasurementValue | None) -> Any:
+    if measurement is None:
+        return None
+    value, _unit = _value_and_unit(None, measurement)
+    return value
+
+
+def _status(measurement: MeasurementValue | None) -> str | None:
+    return measurement.status_value.status.value if measurement is not None and measurement.status_value else None
+
+
+def _status_or_value(measurement: MeasurementValue) -> Any:
+    if measurement.status_value is not None:
+        return measurement.status_value.status.value
+    return _debug_value(measurement)
+
+
+def _debug_value(measurement: MeasurementValue) -> Any:
+    value, _unit = _value_and_unit(None, measurement)
+    return value
 
 
 def evidence_item_from_finding(finding: Finding, measurement: MeasurementValue | None = None) -> EvidenceItem:

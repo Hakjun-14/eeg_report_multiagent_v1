@@ -84,7 +84,6 @@ class BackgroundModule:
         tools = self.agent.select_tools(scout_summary)
 
         measurements: List[MeasurementValue] = []
-        findings: List[Finding] = []
         invocations: List[ToolInvocationRecord] = []
 
         for tool_name in tools:
@@ -112,10 +111,9 @@ class BackgroundModule:
                 for item in output:
                     if isinstance(item, MeasurementValue):
                         measurements.append(item)
-                        findings.append(_finding_from_measurement(item))
 
         return {
             "measurements": measurements,
-            "findings": findings,
+            "findings": [],
             "tool_invocations": invocations,
         }

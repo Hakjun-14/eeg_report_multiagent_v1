@@ -94,7 +94,6 @@ class EventModule:
         tools = self.agent.select_tools(scout_summary)
 
         measurements: List[MeasurementValue] = []
-        findings: List[Finding] = []
         invocations: List[ToolInvocationRecord] = []
 
         # Always run transient candidate first
@@ -157,12 +156,9 @@ class EventModule:
             if isinstance(output, list):
                 measurements.extend([m for m in output if isinstance(m, MeasurementValue)])
 
-        for m in measurements:
-            findings.append(_finding_from_measurement(m))
-
         return {
             "measurements": measurements,
-            "findings": findings,
+            "findings": [],
             "tool_invocations": invocations,
             "focused_windows": suspicious,
         }

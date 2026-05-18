@@ -15,7 +15,7 @@ from eeg_report_multiagent.schemas.report import (
     SurfaceDecision,
 )
 from eeg_report_multiagent.schemas.section_contract import SectionRole
-from eeg_report_multiagent.schemas.shared_evidence import EvidenceType, SharedEvidenceBoard
+from eeg_report_multiagent.schemas.shared_evidence import ClinicalTarget, EvidenceItem, EvidenceType, SharedEvidenceBoard
 from eeg_report_multiagent.modules.section_router import SectionRouter
 from eeg_report_multiagent.modules.surface_policy import SurfacePolicy
 from eeg_report_multiagent.modules.reportability_calibration import EvidenceReportabilityCalibrator
@@ -123,6 +123,9 @@ class ReportSynthesizer:
         evidence objects are converted into candidate clinical report claims.
         """
         shared_board = board.ensure_shared_evidence_board()
+        if not board.findings:
+            return self._build_grouped_atomic_claim_plan(shared_board)
+
         measurement_index = {m.measurement_id: m for m in board.measurements}
         plans: List[AtomicClaimPlan] = []
         for finding in board.findings:
@@ -176,6 +179,146 @@ class ReportSynthesizer:
                 )
             )
         return plans
+
+    def _build_grouped_atomic_claim_plan(self, shared_board: SharedEvidenceBoard) -> List[AtomicClaimPlan]:
+        """Plan claims from clinically grouped EvidenceItems.
+
+        This is the new runtime path after demoting `Finding` to legacy.
+        Evidence grouping happens before claim planning, so claims are no
+        longer generated one-per-measurement/tool output.
+        """
+
+        plans: List[AtomicClaimPlan] = []
+        for item in shared_board.evidence_items:
+            action, template_id, allowed_sections, required, missing = self._grouped_claim_policy(item)
+            proposed_text = self._grouped_claim_text(item, template_id, action)
+            plans.append(
+                AtomicClaimPlan(
+                    plan_id=f"p_{item.evidence_id}",
+                    section_type=ReportSectionType.DETAIL,
+                    claim_type=str(getattr(item.clinical_target, "value", item.clinical_target)),
+                    proposed_text=proposed_text,
+                    evidence_ids=[item.evidence_id],
+                    linked_finding_ids=[],
+                    linked_measurement_ids=list(item.measurement_ids),
+                    required_evidence=required,
+                    missing_evidence=missing,
+                    surface_action=action,
+                    confidence=None,
+                    rationale=self._grouped_claim_rationale(item, action),
+                    allowed_sections=allowed_sections,
+                    forbidden_sections=[],
+                    clinical_phrase_template_id=template_id,
+                    debug_payload={
+                        "grouped_evidence_path": True,
+                        "clinical_target": str(getattr(item.clinical_target, "value", item.clinical_target)),
+                        "evidence_type": str(getattr(item.evidence_type, "value", item.evidence_type)),
+                    },
+                )
+            )
+        return plans
+
+    def _grouped_claim_policy(
+        self,
+        item: EvidenceItem,
+    ) -> tuple[ClaimSurfaceAction, str, List[str], List[str], List[str]]:
+        target = str(getattr(item.clinical_target, "value", item.clinical_target))
+        if item.evidence_type in {EvidenceType.DEBUG, EvidenceType.LLM_ASSISTED}:
+            return ClaimSurfaceAction.DEBUG_ONLY, "debug_or_llm_evidence_group", [], ["typed_evidence"], ["surface_allowed_evidence"]
+        if item.evidence_type == EvidenceType.PROXY:
+            return ClaimSurfaceAction.BLOCK, "proxy_evidence_group", [], ["non_proxy_evidence"], ["validated_clinical_support"]
+        if target == ClinicalTarget.PDR.value:
+            value = item.value if isinstance(item.value, dict) else {}
+            freq = value.get("frequency_hz")
+            supported = str(value.get("pdr_supported", "")).lower() == "true"
+            if isinstance(freq, (int, float)) and 8.0 <= float(freq) <= 13.0 and supported:
+                return (
+                    ClaimSurfaceAction.CAVEAT,
+                    "grouped_pdr_candidate",
+                    [SectionRole.BACKGROUND.value, SectionRole.DETAIL.value, SectionRole.SLEEP.value],
+                    ["posterior_alpha_frequency", "posterior_topography", "state_reactivity_when_available"],
+                    ["reactivity_or_eye_opening_attenuation"],
+                )
+            return ClaimSurfaceAction.BLOCK, "grouped_pdr_not_supported", [], ["posterior_alpha_frequency"], ["valid_posterior_alpha_support"]
+        if target == ClinicalTarget.BACKGROUND_AMPLITUDE.value:
+            return (
+                ClaimSurfaceAction.CAVEAT,
+                "grouped_background_amplitude",
+                [SectionRole.BACKGROUND.value, SectionRole.DETAIL.value],
+                ["background_amplitude_measurement"],
+                [],
+            )
+        if target == ClinicalTarget.BACKGROUND_SLOWING.value:
+            return (
+                ClaimSurfaceAction.CAVEAT,
+                "grouped_background_slowing",
+                [SectionRole.BACKGROUND.value, SectionRole.DETAIL.value, SectionRole.IMPRESSION.value],
+                ["background_slowing_measurement"],
+                ["clinical_reader_confirmation"],
+            )
+        if target == ClinicalTarget.EXCESS_BETA.value:
+            return (
+                ClaimSurfaceAction.CAVEAT,
+                "grouped_excess_beta",
+                [SectionRole.BACKGROUND.value, SectionRole.DETAIL.value, SectionRole.IMPRESSION.value],
+                ["beta_activity_measurement"],
+                ["clinical_reader_confirmation"],
+            )
+        if target in {ClinicalTarget.STATE.value, ClinicalTarget.PROTOCOL.value}:
+            return (
+                ClaimSurfaceAction.ALLOW,
+                "grouped_status_context",
+                [SectionRole.DETAIL.value, SectionRole.BACKGROUND.value, SectionRole.SLEEP.value],
+                ["structured_status_or_metadata"],
+                [],
+            )
+        return ClaimSurfaceAction.BLOCK, "unmapped_grouped_evidence", [], ["mapped_clinical_target"], ["claim_template"]
+
+    def _grouped_claim_text(
+        self,
+        item: EvidenceItem,
+        template_id: str,
+        action: ClaimSurfaceAction,
+    ) -> str:
+        if action in {ClaimSurfaceAction.BLOCK, ClaimSurfaceAction.DEBUG_ONLY}:
+            return self.surface_policy.safe_fallback_for_role(SectionRole.OTHER)
+        if template_id == "grouped_pdr_candidate":
+            return (
+                "A posterior alpha rhythm candidate is supported by structured evidence; "
+                "state and reactivity confirmation remain incomplete."
+            )
+        if template_id == "grouped_background_amplitude":
+            return "A provenance-linked background amplitude range is available."
+        if template_id == "grouped_background_slowing":
+            return "Structured evidence suggests background slowing; this remains an assistive finding pending EEG review."
+        if template_id == "grouped_excess_beta":
+            return "Structured evidence suggests increased beta activity; this remains an assistive finding pending EEG review."
+        if template_id == "grouped_status_context":
+            return self._grouped_status_text(item)
+        return self.surface_policy.safe_fallback_for_role(SectionRole.OTHER)
+
+    def _grouped_status_text(self, item: EvidenceItem) -> str:
+        if not isinstance(item.value, dict):
+            return "Structured protocol/context status is available."
+        parts: List[str] = []
+        for name, value in item.value.items():
+            if value in {None, "unknown"}:
+                continue
+            label = name.replace("protocol_", "").replace("_status", "").replace("_availability", "").replace("_presence", "").replace("_", " ")
+            parts.append(f"{label}: {value}")
+        if not parts:
+            return "Structured protocol/context status is available but remains non-specific."
+        return "Protocol/context: " + "; ".join(parts) + "."
+
+    def _grouped_claim_rationale(self, item: EvidenceItem, action: ClaimSurfaceAction) -> str:
+        target = str(getattr(item.clinical_target, "value", item.clinical_target))
+        if action == ClaimSurfaceAction.DEBUG_ONLY:
+            return f"Grouped {target} evidence is debug-only and cannot surface."
+        if action == ClaimSurfaceAction.BLOCK:
+            return f"Grouped {target} evidence lacks enough support for report-surface prose."
+        if action == ClaimSurfaceAction.CAVEAT:
+            return f"Grouped {target} evidence may surface only with caveated wording."
+        return f"Grouped {target} metadata/status evidence may surface."
 
     def _calibrated_evidence_ids_for_decision(
         self,

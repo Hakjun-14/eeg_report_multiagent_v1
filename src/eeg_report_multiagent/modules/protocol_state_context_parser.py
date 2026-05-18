@@ -50,19 +50,8 @@ class ProtocolStateContextParser:
         if isinstance(history_meas, list):
             measurements.extend([m for m in history_meas if isinstance(m, MeasurementValue)])
 
-        findings = [
-            Finding(
-                finding_id=f"f_{m.measurement_id}",
-                finding_type=f"protocol_{m.measurement_name}",
-                assertion=m.status_value.status if m.status_value else None,
-                quantitation=m.quantitation,
-                measurement_ids=[m.measurement_id],
-            )
-            for m in measurements
-        ]
-
         return {
             "measurements": measurements,
-            "findings": findings,
+            "findings": [],
             "tool_invocations": invocations,
         }

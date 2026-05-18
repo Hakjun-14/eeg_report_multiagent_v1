@@ -204,3 +204,9 @@ Reason: Stage 2.98 keeps legacy EvidenceItem policy fields for compatibility, bu
 - Removed remaining `confidence=` call-site arguments from deterministic EEG tool measurement helpers.
 - This confirms confidence is no longer part of measurement runtime artifacts before the larger claim-grouping refactor.
 - Smoke still shows the known 1:1 issue: 34 measurements -> 34 findings -> 34 evidence items -> 34 surface decisions.
+
+## Demote Finding from new runtime path
+- New background/event/protocol module outputs no longer populate `Finding`; they return measurements only.
+- `SharedEvidenceBoard` now groups deterministic measurements into clinical-target EvidenceItems when no findings are present.
+- Claim planning now supports the grouped-evidence path, reducing one smoke run from 34 findings/claims to 0 findings and 11 grouped evidence/claims.
+- `Finding` remains only as a legacy artifact/test compatibility schema until older audit paths are migrated.
