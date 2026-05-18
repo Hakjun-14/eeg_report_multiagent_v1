@@ -76,7 +76,6 @@ def psd_power_spectrum_summary(signal_nct: np.ndarray, fs: int, source_ref: str)
         value=dom_freq,
         unit="Hz",
         provenance=provenance,
-        confidence=0.7,
     )
     m.metadata.update({"frequency_search_hz": "0.5-30", "preprocessing": "per_window_channel_mean_removed"})
     return [m]
@@ -174,7 +173,6 @@ def posterior_dominant_rhythm_candidate(
         value=peak_hz,
         unit="Hz",
         provenance=provenance,
-        confidence=confidence,
     )
     freq.metadata.update(
         {
@@ -191,7 +189,6 @@ def posterior_dominant_rhythm_candidate(
         value=confidence,
         unit="score",
         provenance=provenance,
-        confidence=confidence,
     )
     score.metadata.update(freq.metadata)
     ap = make_exact_measurement(
@@ -200,7 +197,6 @@ def posterior_dominant_rhythm_candidate(
         value=ap_ratio,
         unit="ratio",
         provenance=provenance,
-        confidence=confidence,
     )
     symmetry = make_exact_measurement(
         measurement_id="m_pdr_symmetry_score",
@@ -208,7 +204,6 @@ def posterior_dominant_rhythm_candidate(
         value=symmetry_score,
         unit="score",
         provenance=provenance,
-        confidence=confidence,
     )
     ap.metadata.update(freq.metadata)
     symmetry.metadata.update(freq.metadata)
@@ -256,7 +251,6 @@ def background_organization_proxy(
                 region="anterior-posterior",
                 reason=reason,
             ),
-            confidence=0.45,
         )
     ]
 
@@ -276,7 +270,6 @@ def background_unavailable_slot_status(source_ref: str) -> List[MeasurementValue
             status=StatusSemantic.UNKNOWN,
             provenance=provenance,
             reason="reactivity requires activation/eye-opening markers not available to v1 signal tools",
-            confidence=0.9,
         ),
         make_status_measurement(
             measurement_id="m_sleep_architecture_status",
@@ -284,7 +277,6 @@ def background_unavailable_slot_status(source_ref: str) -> List[MeasurementValue
             status=StatusSemantic.UNKNOWN,
             provenance=provenance,
             reason="sleep architecture requires a validated sleep/state detector not available in v1",
-            confidence=0.9,
         ),
     ]
 
@@ -308,7 +300,6 @@ def bandpower_summary(signal_nct: np.ndarray, fs: int, source_ref: str) -> List[
                 window_indices=range(signal_nct.shape[0]),
                 reason="band_power_sum_divided_by_total_0p5_30_hz_power_after_detrending",
             ),
-            confidence=0.7,
         )
         m.metadata.update({"band_hz": f"{band[0]}-{band[1]}", "denominator_hz": "0.5-30"})
         out.append(m)
@@ -334,7 +325,6 @@ def amplitude_summary(signal_nct: np.ndarray, source_ref: str) -> List[Measureme
             window_indices=range(signal_nct.shape[0]),
             reason=scale_assumption,
         ),
-        confidence=0.65,
     )
     m.metadata.update({"scale_assumption": scale_assumption, "percentile_range": "abs_signal_p5_p95"})
     return [m]
@@ -359,7 +349,6 @@ def slowing_score(signal_nct: np.ndarray, fs: int, source_ref: str) -> List[Meas
                 source_ref=source_ref,
                 window_indices=range(signal_nct.shape[0]),
             ),
-            confidence=0.72,
         )
     ]
 
@@ -385,6 +374,5 @@ def beta_excess_score(signal_nct: np.ndarray, fs: int, source_ref: str) -> List[
                 source_ref=source_ref,
                 window_indices=range(signal_nct.shape[0]),
             ),
-            confidence=0.7,
         )
     ]

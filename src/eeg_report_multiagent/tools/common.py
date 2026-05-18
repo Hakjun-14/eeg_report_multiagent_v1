@@ -28,7 +28,6 @@ def make_provenance(
     region: Optional[str] = None,
     laterality: Optional[str] = None,
     reason: Optional[str] = None,
-    confidence: Optional[float] = None,
 ) -> ProvenanceRecord:
     return ProvenanceRecord(
         source_type=source_type,
@@ -46,7 +45,6 @@ def make_exact_measurement(
     value: float,
     unit: Optional[str],
     provenance: ProvenanceRecord,
-    confidence: Optional[float] = None,
 ) -> MeasurementValue:
     return MeasurementValue(
         measurement_id=measurement_id,
@@ -63,7 +61,6 @@ def make_range_measurement(
     upper: float,
     unit: Optional[str],
     provenance: ProvenanceRecord,
-    confidence: Optional[float] = None,
 ) -> MeasurementValue:
     return MeasurementValue(
         measurement_id=measurement_id,
@@ -79,7 +76,6 @@ def make_upper_bound_measurement(
     upper: float,
     unit: Optional[str],
     provenance: ProvenanceRecord,
-    confidence: Optional[float] = None,
 ) -> MeasurementValue:
     return MeasurementValue(
         measurement_id=measurement_id,
@@ -95,7 +91,6 @@ def make_distribution_measurement(
     values: List[float],
     unit: Optional[str],
     provenance: ProvenanceRecord,
-    confidence: Optional[float] = None,
 ) -> MeasurementValue:
     return MeasurementValue(
         measurement_id=measurement_id,
@@ -111,7 +106,6 @@ def make_status_measurement(
     status: StatusSemantic,
     provenance: ProvenanceRecord,
     reason: Optional[str] = None,
-    confidence: Optional[float] = None,
 ) -> MeasurementValue:
     return MeasurementValue(
         measurement_id=measurement_id,
@@ -126,7 +120,6 @@ def make_categorical_measurement(
     measurement_name: str,
     value: str,
     provenance: ProvenanceRecord,
-    confidence: Optional[float] = None,
 ) -> MeasurementValue:
     return MeasurementValue(
         measurement_id=measurement_id,

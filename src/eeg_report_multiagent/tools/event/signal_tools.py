@@ -47,7 +47,6 @@ def transient_candidate_score(signal_nct: np.ndarray, source_ref: str) -> List[M
                 source_ref=source_ref,
                 window_indices=range(signal_nct.shape[0]),
             ),
-            confidence=0.65,
         ),
         make_exact_measurement(
             measurement_id="m_event_candidate_burden_ratio",
@@ -60,7 +59,6 @@ def transient_candidate_score(signal_nct: np.ndarray, source_ref: str) -> List[M
                 source_ref=source_ref,
                 window_indices=range(signal_nct.shape[0]),
             ),
-            confidence=0.65,
         ),
     ]
 
@@ -101,7 +99,6 @@ def burst_train_duration_estimate(score_distribution: np.ndarray, window_seconds
                 source_ref=source_ref,
                 window_indices=[int(x) for x in suspicious.tolist()],
             ),
-            confidence=0.6,
         ),
         make_distribution_measurement(
             measurement_id="m_event_train_duration_distribution",
@@ -114,7 +111,6 @@ def burst_train_duration_estimate(score_distribution: np.ndarray, window_seconds
                 source_ref=source_ref,
                 window_indices=[int(x) for x in suspicious.tolist()],
             ),
-            confidence=0.6,
         ),
     ]
 
@@ -157,7 +153,6 @@ def channel_spread_laterality_summary(
                 channels=channels,
                 laterality=laterality,
             ),
-            confidence=0.58,
         )
     ]
 
@@ -194,7 +189,6 @@ def focality_bifrontal_summary(
                 channels=channels,
                 region="frontal-bifrontal",
             ),
-            confidence=0.6,
         )
     ]
 
@@ -333,7 +327,6 @@ def event_localization_normalizer(
         measurement_name="event_clinical_localization_label",
         value=label,
         provenance=provenance,
-        confidence=min(0.75, 0.35 + 0.10 * concentration),
     )
     label_measurement.metadata.update({"top_channels": ",".join(top_channels), "localization_is_proxy": "true"})
     concentration_measurement = make_exact_measurement(
@@ -342,7 +335,6 @@ def event_localization_normalizer(
         value=concentration,
         unit="ratio",
         provenance=provenance,
-        confidence=0.55,
     )
     concentration_measurement.metadata.update(label_measurement.metadata)
     return [label_measurement, concentration_measurement]
@@ -380,7 +372,6 @@ def event_peak_topography_localizer(
                 measurement_name="event_peak_localization_label",
                 value="unknown",
                 provenance=provenance,
-                confidence=0.0,
             )
         ]
 
@@ -436,7 +427,6 @@ def event_peak_topography_localizer(
         region=label,
         laterality=laterality,
         reason="event_peak_centered_topographic_field_proxy",
-        confidence=min(0.80, 0.35 + 0.08 * concentration),
     )
     if peak_sample_indices:
         provenance.value_span = (float(min(peak_sample_indices)), float(max(peak_sample_indices)))
@@ -454,7 +444,6 @@ def event_peak_topography_localizer(
         measurement_name="event_peak_localization_label",
         value=label,
         provenance=provenance,
-        confidence=min(0.80, 0.35 + 0.08 * concentration),
     )
     label_measurement.metadata.update(metadata)
     concentration_measurement = make_exact_measurement(
@@ -463,7 +452,6 @@ def event_peak_topography_localizer(
         value=concentration,
         unit="ratio",
         provenance=provenance,
-        confidence=0.58,
     )
     concentration_measurement.metadata.update(metadata)
     laterality_measurement = make_exact_measurement(
@@ -472,7 +460,6 @@ def event_peak_topography_localizer(
         value=laterality_index,
         unit="ratio",
         provenance=provenance,
-        confidence=0.58,
     )
     laterality_measurement.metadata.update(metadata)
     return [label_measurement, concentration_measurement, laterality_measurement]
@@ -550,7 +537,6 @@ def morphology_feature_encoder(
             measurement_name="event_morphology_proxy_class",
             value=morphology_class,
             provenance=class_provenance,
-            confidence=0.50,
         ),
         make_distribution_measurement(
             measurement_id="m_event_morphology_proxy_score_distribution",
@@ -565,7 +551,6 @@ def morphology_feature_encoder(
                 channels=channels,
                 reason="local_feature_encoder_v0_line_length_curvature_field_concentration",
             ),
-            confidence=0.55,
         ),
         make_exact_measurement(
             measurement_id="m_event_morphology_support_score",
@@ -580,7 +565,6 @@ def morphology_feature_encoder(
                 channels=top_channels or channels,
                 reason="focused_candidate_windows_top_decile_morphology_proxy_score",
             ),
-            confidence=0.55,
         ),
         make_exact_measurement(
             measurement_id="m_event_field_concentration_ratio",
@@ -595,7 +579,6 @@ def morphology_feature_encoder(
                 channels=top_channels or channels,
                 reason="focused_candidate_windows_spatial_field_proxy",
             ),
-            confidence=0.55,
         ),
     ]
 
@@ -676,7 +659,6 @@ def event_type_separation_classifier(
             value=epileptiform_likelihood,
             unit="score",
             provenance=provenance,
-            confidence=0.50,
         ),
         make_exact_measurement(
             measurement_id="m_electrographic_seizure_likelihood",
@@ -684,6 +666,5 @@ def event_type_separation_classifier(
             value=seizure_likelihood,
             unit="score",
             provenance=provenance,
-            confidence=0.50,
         ),
     ]

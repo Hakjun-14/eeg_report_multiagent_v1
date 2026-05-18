@@ -199,3 +199,8 @@ Reason: Stage 2.98 keeps legacy EvidenceItem policy fields for compatibility, bu
 - New `Finding` and `EvidenceItem` runtime artifacts no longer copy measurement confidence/reliability.
 - Evidence selection should use typed values, provenance, and `SurfaceDecision`, not score-like confidence fields on measurements.
 - `SharedEvidenceBoard.query_for_surface_decisions()` was added as the SurfaceDecision-based replacement path for report-surface evidence lookup.
+
+## Pre-claim-grouping cleanup
+- Removed remaining `confidence=` call-site arguments from deterministic EEG tool measurement helpers.
+- This confirms confidence is no longer part of measurement runtime artifacts before the larger claim-grouping refactor.
+- Smoke still shows the known 1:1 issue: 34 measurements -> 34 findings -> 34 evidence items -> 34 surface decisions.
