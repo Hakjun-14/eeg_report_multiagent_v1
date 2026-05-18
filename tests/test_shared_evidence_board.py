@@ -6,7 +6,7 @@ from pydantic import ValidationError
 from eeg_report_multiagent.modules.evidence_item_adapter import build_shared_evidence_board
 from eeg_report_multiagent.modules.report_synthesizer import ReportSynthesizer
 from eeg_report_multiagent.modules.surface_policy import SurfacePolicy
-from eeg_report_multiagent.schemas import EvidenceBoard, FindingObject, MeasurementValue, QuantitationValue
+from eeg_report_multiagent.schemas import EvidenceBoard, Finding, MeasurementValue, QuantitationValue
 from eeg_report_multiagent.schemas.measurement import QuantitationKind, StatusSemantic
 from eeg_report_multiagent.schemas.provenance import MeasurementProvenance, ProvenanceRecord, SourceType, SpaceProvenance, TimeProvenance
 from eeg_report_multiagent.schemas.report import ClaimSurfaceAction
@@ -46,8 +46,8 @@ def _exact(mid: str, name: str, value: float, unit: str = "score", prov: Provena
     )
 
 
-def _finding(fid: str, ftype: str, measurement: MeasurementValue) -> FindingObject:
-    return FindingObject(
+def _finding(fid: str, ftype: str, measurement: MeasurementValue) -> Finding:
+    return Finding(
         finding_id=fid,
         finding_type=ftype,
         assertion=StatusSemantic.PRESENT,

@@ -1,6 +1,6 @@
 from eeg_report_multiagent.modules.evidence_reviewer import EvidenceReviewModule
 from eeg_report_multiagent.modules.report_synthesizer import ReportSynthesizer
-from eeg_report_multiagent.schemas import EvidenceBoard, FindingObject, MeasurementValue, QuantitationValue
+from eeg_report_multiagent.schemas import EvidenceBoard, Finding, MeasurementValue, QuantitationValue
 from eeg_report_multiagent.schemas.measurement import QuantitationKind, StatusSemantic
 from eeg_report_multiagent.schemas.provenance import (
     MeasurementProvenance,
@@ -73,7 +73,7 @@ def _board() -> EvidenceBoard:
         quantitation=QuantitationValue(kind=QuantitationKind.EXACT, exact=0.5, unit="Hz"),
         provenance=_signal_prov("psd_summary"),
     )
-    f_freq = FindingObject(
+    f_freq = Finding(
         finding_id="f_freq",
         finding_type="background_frequency",
         assertion=StatusSemantic.PRESENT,
@@ -88,7 +88,7 @@ def _board() -> EvidenceBoard:
         quantitation=QuantitationValue(kind=QuantitationKind.EXACT, exact=0.2, unit="ratio"),
         provenance=_signal_prov("transient_candidate_score"),
     )
-    f_event = FindingObject(
+    f_event = Finding(
         finding_id="f_event",
         finding_type="epileptiform_event_candidate_burden",
         assertion=StatusSemantic.PRESENT,

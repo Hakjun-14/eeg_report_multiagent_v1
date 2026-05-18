@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from eeg_report_multiagent.schemas.evidence import EvidenceBoard
-from eeg_report_multiagent.schemas.finding import FindingObject
+from eeg_report_multiagent.schemas.finding import Finding
 from eeg_report_multiagent.schemas.gt_suppression import GTAtomicClaim, GTClaimPipelineMatch, GTSuppressionAggregate, GTSuppressionAuditResult
 from eeg_report_multiagent.schemas.measurement import MeasurementValue
 from eeg_report_multiagent.schemas.report import AtomicClaimPlan, ClaimSurfaceAction
@@ -214,7 +214,7 @@ class GTRequiredSuppressionAuditor:
         self,
         claim: GTAtomicClaim,
         measurements: Sequence[MeasurementValue],
-        findings: Sequence[FindingObject],
+        findings: Sequence[Finding],
         evidence_items: Sequence[EvidenceItem],
         atomic_claims: Sequence[AtomicClaimPlan],
         final_report: Mapping[str, str],
@@ -328,7 +328,7 @@ class GTRequiredSuppressionAuditor:
             return True
         return False
 
-    def _finding_matches(self, claim: GTAtomicClaim, finding: FindingObject) -> bool:
+    def _finding_matches(self, claim: GTAtomicClaim, finding: Finding) -> bool:
         text = _norm(" ".join([finding.finding_id, finding.finding_type, finding.summary_label or "", " ".join(finding.tags)]))
         identity = _norm(" ".join([finding.finding_id, finding.finding_type, finding.summary_label or ""]))
         if claim.claim_type == "event_amplitude":
@@ -349,7 +349,7 @@ class GTRequiredSuppressionAuditor:
         claim: GTAtomicClaim,
         evidence: EvidenceItem,
         measurement_hits: Sequence[MeasurementValue],
-        finding_hits: Sequence[FindingObject],
+        finding_hits: Sequence[Finding],
     ) -> bool:
         if any(mid in evidence.measurement_ids for mid in [m.measurement_id for m in measurement_hits]):
             return True

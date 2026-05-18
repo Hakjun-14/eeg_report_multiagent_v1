@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Iterable, List
 
 from eeg_report_multiagent.schemas.evidence import EvidenceBoard
-from eeg_report_multiagent.schemas.finding import FindingObject
+from eeg_report_multiagent.schemas.finding import Finding
 from eeg_report_multiagent.schemas.measurement import MeasurementValue
 from eeg_report_multiagent.schemas.report import ClaimRecord
 from eeg_report_multiagent.schemas.tooling import ToolInvocationRecord
@@ -15,12 +15,12 @@ class EvidenceBoardAssembler:
         self,
         session_id: str,
         measurement_groups: Iterable[List[MeasurementValue]],
-        finding_groups: Iterable[List[FindingObject]],
+        finding_groups: Iterable[List[Finding]],
         tool_invocation_groups: Iterable[List[ToolInvocationRecord]],
         claims: List[ClaimRecord] | None = None,
     ) -> EvidenceBoard:
         measurements: List[MeasurementValue] = []
-        findings: List[FindingObject] = []
+        findings: List[Finding] = []
         invocations: List[ToolInvocationRecord] = []
 
         for group in measurement_groups:

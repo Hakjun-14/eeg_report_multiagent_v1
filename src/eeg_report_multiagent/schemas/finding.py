@@ -8,7 +8,7 @@ from .measurement import QuantitationValue, StatusSemantic
 from .provenance import ProvenanceRecord
 
 
-class FindingObject(BaseModel):
+class Finding(BaseModel):
     finding_id: str
     finding_type: str
     assertion: StatusSemantic

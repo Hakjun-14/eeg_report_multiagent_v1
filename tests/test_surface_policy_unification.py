@@ -10,7 +10,7 @@ from eeg_report_multiagent.schemas.agent import (
     MissingSlotRecord,
     WeakEvidenceRecord,
 )
-from eeg_report_multiagent.schemas import EvidenceBoard, FindingObject, MeasurementValue, QuantitationValue
+from eeg_report_multiagent.schemas import EvidenceBoard, Finding, MeasurementValue, QuantitationValue
 from eeg_report_multiagent.schemas.measurement import QuantitationKind, StatusSemantic
 from eeg_report_multiagent.schemas.provenance import MeasurementProvenance, ProvenanceRecord, SourceType, TimeProvenance
 
@@ -52,8 +52,8 @@ def _exact(mid: str, name: str, value: float, unit: str = "score") -> Measuremen
     )
 
 
-def _finding(fid: str, ftype: str, mid: str, measurement: MeasurementValue) -> FindingObject:
-    return FindingObject(
+def _finding(fid: str, ftype: str, mid: str, measurement: MeasurementValue) -> Finding:
+    return Finding(
         finding_id=fid,
         finding_type=ftype,
         assertion=StatusSemantic.PRESENT,

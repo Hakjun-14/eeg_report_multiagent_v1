@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from eeg_report_multiagent.modules.evidence_flow_auditor import EvidenceFlowAuditor
-from eeg_report_multiagent.schemas import EvidenceBoard, FindingObject, MeasurementValue, QuantitationValue
+from eeg_report_multiagent.schemas import EvidenceBoard, Finding, MeasurementValue, QuantitationValue
 from eeg_report_multiagent.schemas.measurement import QuantitationKind, StatusSemantic
 from eeg_report_multiagent.schemas.provenance import MeasurementProvenance, ProvenanceRecord, SourceType, SpaceProvenance, TimeProvenance
 from eeg_report_multiagent.schemas.report import AtomicClaimPlan, ClaimSurfaceAction, ReportSectionType
@@ -27,8 +27,8 @@ def _measurement(mid: str, name: str, value: float, unit: str) -> MeasurementVal
     )
 
 
-def _finding(fid: str, ftype: str, mid: str) -> FindingObject:
-    return FindingObject(
+def _finding(fid: str, ftype: str, mid: str) -> Finding:
+    return Finding(
         finding_id=fid,
         finding_type=ftype,
         assertion=StatusSemantic.PRESENT,

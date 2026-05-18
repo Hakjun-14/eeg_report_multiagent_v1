@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Dict, List
 
-from eeg_report_multiagent.schemas.finding import FindingObject
+from eeg_report_multiagent.schemas.finding import Finding
 from eeg_report_multiagent.schemas.measurement import MeasurementValue
 from eeg_report_multiagent.schemas.tooling import ToolInvocationRecord
 from eeg_report_multiagent.tools.registry import ToolRegistry
@@ -51,7 +51,7 @@ class ProtocolStateContextParser:
             measurements.extend([m for m in history_meas if isinstance(m, MeasurementValue)])
 
         findings = [
-            FindingObject(
+            Finding(
                 finding_id=f"f_{m.measurement_id}",
                 finding_type=f"protocol_{m.measurement_name}",
                 assertion=m.status_value.status if m.status_value else None,

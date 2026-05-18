@@ -4,7 +4,7 @@ import re
 from typing import Dict, List, Mapping
 
 from eeg_report_multiagent.schemas.evidence import EvidenceBoard
-from eeg_report_multiagent.schemas.finding import FindingObject
+from eeg_report_multiagent.schemas.finding import Finding
 from eeg_report_multiagent.schemas.measurement import MeasurementValue, QuantitationValue, StatusSemantic
 from eeg_report_multiagent.schemas.report import (
     AtomicClaimPlan,
@@ -180,7 +180,7 @@ class ReportSynthesizer:
     def _calibrated_evidence_ids_for_decision(
         self,
         shared_board: SharedEvidenceBoard,
-        finding: FindingObject,
+        finding: Finding,
         evidence_items: list,
         decision: SurfaceDecision,
     ) -> List[str]:
@@ -219,7 +219,7 @@ class ReportSynthesizer:
             section_texts[section_name] = self._section_text_from_plans(claim_plan, role, surface_decisions)
         return section_texts
 
-    def _first_measurement(self, finding: FindingObject, measurement_index: dict[str, MeasurementValue]) -> MeasurementValue | None:
+    def _first_measurement(self, finding: Finding, measurement_index: dict[str, MeasurementValue]) -> MeasurementValue | None:
         for mid in finding.measurement_ids:
             if mid in measurement_index:
                 return measurement_index[mid]
@@ -365,7 +365,7 @@ class ReportSynthesizer:
 
     def _claim_text_from_surface_decision(
         self,
-        finding: FindingObject,
+        finding: Finding,
         measurement: MeasurementValue | None,
         decision: SurfaceDecision,
     ) -> str:
@@ -398,12 +398,12 @@ class ReportSynthesizer:
 
         return self.surface_policy.safe_fallback_for_role(SectionRole.OTHER)
 
-    def _is_abnormal_finding(self, f: FindingObject) -> bool:
+    def _is_abnormal_finding(self, f: Finding) -> bool:
         if f.assertion != StatusSemantic.PRESENT:
             return False
         return f.finding_type in {"background_pdr_frequency", "background_amplitude_range", "background_slowing", "excess_beta"}
 
-    def _finding_label(self, finding: FindingObject, measurement: MeasurementValue | None) -> str:
+    def _finding_label(self, finding: Finding, measurement: MeasurementValue | None) -> str:
         mapping = {
             "background_frequency": "Background dominant frequency",
             "background_pdr_frequency": "Posterior dominant rhythm candidate",
@@ -460,7 +460,7 @@ class ReportSynthesizer:
                 return measurement.categorical_value
         return None
 
-    def _clinical_quantitation_allowed(self, finding: FindingObject) -> bool:
+    def _clinical_quantitation_allowed(self, finding: Finding) -> bool:
         if finding.finding_type == "background_pdr_frequency" and finding.assertion == StatusSemantic.PRESENT:
             return True
         if finding.finding_type == "background_amplitude_range" and finding.assertion == StatusSemantic.PRESENT:
@@ -474,7 +474,7 @@ class ReportSynthesizer:
 
     def _claim_evidence_requirements(
         self,
-        finding: FindingObject,
+        finding: Finding,
         measurement: MeasurementValue | None,
     ) -> tuple[List[str], List[str]]:
         required: List[str] = []
@@ -524,7 +524,7 @@ class ReportSynthesizer:
     def _claim_surface_action(
         self,
         board: EvidenceBoard,
-        finding: FindingObject,
+        finding: Finding,
         measurement: MeasurementValue | None,
         missing_evidence: List[str],
     ) -> ClaimSurfaceAction:
@@ -566,7 +566,7 @@ class ReportSynthesizer:
 
     def _claim_plan_rationale(
         self,
-        finding: FindingObject,
+        finding: Finding,
         action: ClaimSurfaceAction,
         missing_evidence: List[str],
     ) -> str:
@@ -584,7 +584,7 @@ class ReportSynthesizer:
             return ""
         return "Structured evidence-review constraints are retained in audit artifacts and are not surfaced as raw reviewer text."
 
-    def _findings_by_type(self, board: EvidenceBoard) -> Dict[str, FindingObject]:
+    def _findings_by_type(self, board: EvidenceBoard) -> Dict[str, Finding]:
         return {finding.finding_type: finding for finding in board.findings}
 
     def _measurement_for_type(
@@ -598,8 +598,8 @@ class ReportSynthesizer:
                 return self._first_measurement(finding, measurement_index)
         return None
 
-    def _finding_for_measurement_name(self, board: EvidenceBoard, measurement_name: str) -> FindingObject | None:
-        measurement_to_finding: dict[str, FindingObject] = {}
+    def _finding_for_measurement_name(self, board: EvidenceBoard, measurement_name: str) -> Finding | None:
+        measurement_to_finding: dict[str, Finding] = {}
         for finding in board.findings:
             for measurement_id in finding.measurement_ids:
                 measurement_to_finding[measurement_id] = finding
@@ -619,7 +619,7 @@ class ReportSynthesizer:
             return None
         return measurement.quantitation.exact
 
-    def _range_text(self, finding: FindingObject | None) -> str | None:
+    def _range_text(self, finding: Finding | None) -> str | None:
         if finding is None or finding.quantitation is None:
             return None
         return self._format_quantitation(finding.quantitation)
@@ -635,7 +635,7 @@ class ReportSynthesizer:
                     return True
         return False
 
-    def _protocol_sentence(self, findings: Dict[str, FindingObject]) -> str:
+    def _protocol_sentence(self, findings: Dict[str, Finding]) -> str:
         parts: List[str] = []
         hv = findings.get("protocol_hyperventilation_status")
         photic = findings.get("protocol_photic_stimulation_status")
@@ -701,7 +701,7 @@ class ReportSynthesizer:
 
     def _detail_sentence(
         self,
-        finding: FindingObject,
+        finding: Finding,
         measurement: MeasurementValue | None,
         review_notes: List[str] | None = None,
     ) -> str:

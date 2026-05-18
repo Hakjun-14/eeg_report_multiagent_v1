@@ -1,6 +1,6 @@
 from eeg_report_multiagent.modules.report_synthesizer import ReportSynthesizer
 from eeg_report_multiagent.schemas.evidence import EvidenceBoard
-from eeg_report_multiagent.schemas.finding import FindingObject
+from eeg_report_multiagent.schemas.finding import Finding
 from eeg_report_multiagent.schemas.measurement import MeasurementValue, QuantitationKind, QuantitationValue, StatusSemantic
 from eeg_report_multiagent.schemas.provenance import ProvenanceRecord, SourceType
 from eeg_report_multiagent.schemas.report import ClaimSurfaceAction
@@ -14,7 +14,7 @@ def test_atomic_claim_plan_blocks_debug_only_proxy_scores() -> None:
         quantitation=QuantitationValue(kind=QuantitationKind.EXACT, exact=2.1, unit="ratio"),
         provenance=prov,
     )
-    finding = FindingObject(
+    finding = Finding(
         finding_id="f_debug",
         finding_type="event_peak_field_support",
         assertion=StatusSemantic.PRESENT,
@@ -38,7 +38,7 @@ def test_atomic_claim_plan_blocks_peak_localization_proxy_by_default() -> None:
         categorical_value="left_temporal",
         provenance=prov,
     )
-    finding = FindingObject(
+    finding = Finding(
         finding_id="f_loc",
         finding_type="event_peak_localization",
         assertion=StatusSemantic.PRESENT,
@@ -85,14 +85,14 @@ def test_section_synthesis_blocks_proxy_localization_even_with_support_scores() 
         morph_class,
     ]
     findings = [
-        FindingObject(
+        Finding(
             finding_id="f_loc",
             finding_type="event_peak_localization",
             assertion=StatusSemantic.PRESENT,
             measurement_ids=["m_loc"],
             provenance=[prov],
         ),
-        FindingObject(
+        Finding(
             finding_id="f_burden",
             finding_type="epileptiform_event_candidate_burden",
             assertion=StatusSemantic.PRESENT,
@@ -100,7 +100,7 @@ def test_section_synthesis_blocks_proxy_localization_even_with_support_scores() 
             quantitation=measurements[1].quantitation,
             provenance=[prov],
         ),
-        FindingObject(
+        Finding(
             finding_id="f_peak_field",
             finding_type="event_peak_field_support",
             assertion=StatusSemantic.PRESENT,
@@ -108,7 +108,7 @@ def test_section_synthesis_blocks_proxy_localization_even_with_support_scores() 
             quantitation=measurements[2].quantitation,
             provenance=[prov],
         ),
-        FindingObject(
+        Finding(
             finding_id="f_likelihood",
             finding_type="epileptiform_candidate_likelihood",
             assertion=StatusSemantic.PRESENT,
@@ -116,7 +116,7 @@ def test_section_synthesis_blocks_proxy_localization_even_with_support_scores() 
             quantitation=measurements[3].quantitation,
             provenance=[prov],
         ),
-        FindingObject(
+        Finding(
             finding_id="f_morph_support",
             finding_type="event_morphology_support",
             assertion=StatusSemantic.PRESENT,
@@ -124,7 +124,7 @@ def test_section_synthesis_blocks_proxy_localization_even_with_support_scores() 
             quantitation=measurements[4].quantitation,
             provenance=[prov],
         ),
-        FindingObject(
+        Finding(
             finding_id="f_morph_class",
             finding_type="event_morphology_class",
             assertion=StatusSemantic.PRESENT,

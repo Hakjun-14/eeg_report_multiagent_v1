@@ -1,5 +1,5 @@
 from eeg_report_multiagent.modules.evidence_board import EvidenceBoardAssembler
-from eeg_report_multiagent.schemas.finding import FindingObject
+from eeg_report_multiagent.schemas.finding import Finding
 from eeg_report_multiagent.schemas.measurement import MeasurementValue, QuantitationKind, QuantitationValue, StatusSemantic
 from eeg_report_multiagent.schemas.provenance import ProvenanceRecord, SourceType
 
@@ -12,7 +12,7 @@ def test_evidence_board_merge() -> None:
         quantitation=QuantitationValue(kind=QuantitationKind.EXACT, exact=1.2, unit="ratio"),
         provenance=prov,
     )
-    finding = FindingObject(
+    finding = Finding(
         finding_id="f1",
         finding_type="background_slowing",
         assertion=StatusSemantic.PRESENT,

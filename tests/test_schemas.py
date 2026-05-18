@@ -3,7 +3,7 @@ from eeg_report_multiagent.schemas import (
     ClaimRecord,
     ClaimSurfaceAction,
     EvidenceBoard,
-    FindingObject,
+    Finding,
     MeasurementValue,
     ProvenanceRecord,
     QuantitationValue,
@@ -25,7 +25,7 @@ def test_schema_instantiation_smoke() -> None:
         quantitation=q,
         provenance=prov,
     )
-    finding = FindingObject(
+    finding = Finding(
         finding_id="f1",
         finding_type="background_frequency",
         assertion=StatusSemantic.PRESENT,

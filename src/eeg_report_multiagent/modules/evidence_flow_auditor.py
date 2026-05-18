@@ -7,7 +7,7 @@ from typing import Iterable, List, Mapping, Sequence
 
 from eeg_report_multiagent.schemas.evidence import EvidenceBoard
 from eeg_report_multiagent.schemas.evidence_flow import EvidenceFlowAggregate, EvidenceFlowAuditResult, SlotFlowRecord
-from eeg_report_multiagent.schemas.finding import FindingObject
+from eeg_report_multiagent.schemas.finding import Finding
 from eeg_report_multiagent.schemas.measurement import MeasurementValue
 from eeg_report_multiagent.schemas.report import AtomicClaimPlan, ClaimSurfaceAction
 from eeg_report_multiagent.schemas.shared_evidence import EvidenceItem, EvidenceType, SharedEvidenceBoard
@@ -137,7 +137,7 @@ class EvidenceFlowAuditor:
         self,
         slot_name: str,
         measurements: Sequence[MeasurementValue],
-        findings: Sequence[FindingObject],
+        findings: Sequence[Finding],
         evidence_board: SharedEvidenceBoard,
         atomic_claims: Sequence[AtomicClaimPlan],
         final_report: Mapping[str, str],
@@ -300,7 +300,7 @@ class EvidenceFlowAuditor:
         item: EvidenceItem,
         spec: SlotSpec,
         measurement_hits: Sequence[MeasurementValue],
-        finding_hits: Sequence[FindingObject],
+        finding_hits: Sequence[Finding],
     ) -> bool:
         if self._is_reviewer_evidence(item) and spec.name != "uncertainty_caveat":
             return False
@@ -329,7 +329,7 @@ class EvidenceFlowAuditor:
         spec: SlotSpec,
         evidence_ids: Sequence[str],
         measurement_hits: Sequence[MeasurementValue],
-        finding_hits: Sequence[FindingObject],
+        finding_hits: Sequence[Finding],
     ) -> bool:
         if set(claim.evidence_ids) & set(evidence_ids):
             return True

@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from typing import Dict, List, Tuple
 
-from eeg_report_multiagent.schemas.finding import FindingObject
+from eeg_report_multiagent.schemas.finding import Finding
 
 
-def finding_key(finding: FindingObject) -> Tuple[str, str]:
+def finding_key(finding: Finding) -> Tuple[str, str]:
     return (finding.finding_type, finding.assertion.value)
 
 
-def compare_findings(pred: List[FindingObject], gt: List[FindingObject]) -> Dict[str, object]:
+def compare_findings(pred: List[Finding], gt: List[Finding]) -> Dict[str, object]:
     pred_set = {finding_key(f) for f in pred}
     gt_set = {finding_key(f) for f in gt}
 

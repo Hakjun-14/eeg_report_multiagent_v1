@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from eeg_report_multiagent.modules.final_prose_auditor import FinalProseAuditor
 from eeg_report_multiagent.modules.report_synthesizer import ReportSynthesizer
-from eeg_report_multiagent.schemas import EvidenceBoard, FindingObject, MeasurementValue, QuantitationValue
+from eeg_report_multiagent.schemas import EvidenceBoard, Finding, MeasurementValue, QuantitationValue
 from eeg_report_multiagent.schemas.final_prose_audit import NumericMatchStatus
 from eeg_report_multiagent.schemas.measurement import QuantitationKind, StatusSemantic
 from eeg_report_multiagent.schemas.provenance import MeasurementProvenance, ProvenanceRecord, SourceType, SpaceProvenance, TimeProvenance
@@ -39,8 +39,8 @@ def _range(mid: str, name: str, lower: float, upper: float, unit: str, prov: Pro
     )
 
 
-def _finding(fid: str, ftype: str, measurement: MeasurementValue) -> FindingObject:
-    return FindingObject(
+def _finding(fid: str, ftype: str, measurement: MeasurementValue) -> Finding:
+    return Finding(
         finding_id=fid,
         finding_type=ftype,
         assertion=StatusSemantic.PRESENT,

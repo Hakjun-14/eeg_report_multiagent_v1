@@ -11,7 +11,7 @@ from .agent import (
 )
 from .evidence import EvidenceBoard
 from .evidence_flow import EvidenceFlowAggregate, EvidenceFlowAuditResult, SlotFlowRecord
-from .finding import FindingObject
+from .finding import Finding
 from .final_prose_audit import (
     ClaimSurfaceMatch,
     DebugLeak,
@@ -32,7 +32,7 @@ __all__ = [
     "StatusValue",
     "QuantitationValue",
     "ProvenanceRecord",
-    "FindingObject",
+    "Finding",
     "NumericMention",
     "DebugLeak",
     "SectionLeakage",

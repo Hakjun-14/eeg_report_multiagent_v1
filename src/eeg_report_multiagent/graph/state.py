@@ -6,7 +6,7 @@ from eeg_report_multiagent.io.manifest_builder import SessionManifest
 from eeg_report_multiagent.io.session_loader import EEGSessionData
 from eeg_report_multiagent.schemas.agent import AgentDeliberationRecord
 from eeg_report_multiagent.schemas.evidence import EvidenceBoard
-from eeg_report_multiagent.schemas.finding import FindingObject
+from eeg_report_multiagent.schemas.finding import Finding
 from eeg_report_multiagent.schemas.measurement import MeasurementValue
 from eeg_report_multiagent.schemas.report import ReportSection, VerificationRecord
 from eeg_report_multiagent.schemas.tooling import ToolInvocationRecord
@@ -27,16 +27,16 @@ class PipelineState(TypedDict, total=False):
     scout_summary: Dict[str, float]
 
     background_measurements: List[MeasurementValue]
-    background_findings: List[FindingObject]
+    background_findings: List[Finding]
     background_tool_invocations: List[ToolInvocationRecord]
 
     event_measurements: List[MeasurementValue]
-    event_findings: List[FindingObject]
+    event_findings: List[Finding]
     event_tool_invocations: List[ToolInvocationRecord]
     focused_windows: List[int]
 
     parser_measurements: List[MeasurementValue]
-    parser_findings: List[FindingObject]
+    parser_findings: List[Finding]
     parser_tool_invocations: List[ToolInvocationRecord]
 
     evidence_board: EvidenceBoard

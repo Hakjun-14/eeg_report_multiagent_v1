@@ -3,7 +3,7 @@ from __future__ import annotations
 from eeg_report_multiagent.modules.final_prose_auditor import FinalProseAuditor
 from eeg_report_multiagent.modules.report_synthesizer import ReportSynthesizer
 from eeg_report_multiagent.schemas.evidence import EvidenceBoard
-from eeg_report_multiagent.schemas.finding import FindingObject
+from eeg_report_multiagent.schemas.finding import Finding
 from eeg_report_multiagent.schemas.measurement import MeasurementValue, QuantitationKind, QuantitationValue, StatusSemantic, StatusValue
 from eeg_report_multiagent.schemas.provenance import MeasurementProvenance, ProvenanceRecord, SourceType, SpaceProvenance, TimeProvenance
 from eeg_report_multiagent.schemas.report import ClaimSurfaceAction
@@ -46,8 +46,8 @@ def _status(mid: str, name: str, status: StatusSemantic) -> MeasurementValue:
     )
 
 
-def _finding(fid: str, ftype: str, measurement: MeasurementValue, assertion: StatusSemantic = StatusSemantic.PRESENT) -> FindingObject:
-    return FindingObject(
+def _finding(fid: str, ftype: str, measurement: MeasurementValue, assertion: StatusSemantic = StatusSemantic.PRESENT) -> Finding:
+    return Finding(
         finding_id=fid,
         finding_type=ftype,
         assertion=assertion,

@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Iterable, List
 
 from eeg_report_multiagent.schemas.agent import AgentDeliberationRecord
-from eeg_report_multiagent.schemas.finding import FindingObject
+from eeg_report_multiagent.schemas.finding import Finding
 from eeg_report_multiagent.schemas.measurement import MeasurementValue, StatusSemantic
 from eeg_report_multiagent.schemas.provenance import ProvenanceRecord, SourceType
 from eeg_report_multiagent.schemas.report import ClaimSurfaceAction
@@ -65,7 +65,7 @@ def build_shared_evidence_board(
     *,
     recording_id: str,
     measurements: Iterable[MeasurementValue],
-    findings: Iterable[FindingObject],
+    findings: Iterable[Finding],
     board_id: str | None = None,
 ) -> SharedEvidenceBoard:
     measurement_list = list(measurements)
@@ -88,7 +88,7 @@ def build_shared_evidence_board(
     return board
 
 
-def evidence_item_from_finding(finding: FindingObject, measurement: MeasurementValue | None = None) -> EvidenceItem:
+def evidence_item_from_finding(finding: Finding, measurement: MeasurementValue | None = None) -> EvidenceItem:
     evidence_type, target, reportability, rationale, allowed = _classify_finding(finding, measurement)
     value, unit = _value_and_unit(finding, measurement)
     provenance = finding.provenance or ([measurement.provenance] if measurement is not None else [])
@@ -233,7 +233,7 @@ def append_deliberation_evidence(board: SharedEvidenceBoard, deliberation: Agent
 
 
 def _classify_finding(
-    finding: FindingObject,
+    finding: Finding,
     measurement: MeasurementValue | None,
 ) -> tuple[EvidenceType, ClinicalTarget, ClaimSurfaceAction, str, List[str]]:
     mname = measurement.measurement_name if measurement else ""
@@ -281,7 +281,7 @@ def _classify_measurement(measurement: MeasurementValue) -> tuple[EvidenceType, 
     return EvidenceType.DERIVED, ClinicalTarget.UNKNOWN, ClaimSurfaceAction.BLOCK, "Measurement requires mapped finding before report surface.", []
 
 
-def _source_module(finding: FindingObject | None, measurement: MeasurementValue | None) -> str:
+def _source_module(finding: Finding | None, measurement: MeasurementValue | None) -> str:
     if finding and finding.source_module:
         return finding.source_module
     prov = measurement.provenance if measurement is not None else None
@@ -296,7 +296,7 @@ def _source_module(finding: FindingObject | None, measurement: MeasurementValue 
     return "unknown"
 
 
-def _value_and_unit(finding: FindingObject | None, measurement: MeasurementValue | None) -> tuple[Any, str | None]:
+def _value_and_unit(finding: Finding | None, measurement: MeasurementValue | None) -> tuple[Any, str | None]:
     q = finding.quantitation if finding and finding.quantitation is not None else (measurement.quantitation if measurement else None)
     if q is not None:
         if q.exact is not None:
@@ -315,7 +315,7 @@ def _value_and_unit(finding: FindingObject | None, measurement: MeasurementValue
     return None, None
 
 
-def _normalized_value(finding: FindingObject | None, measurement: MeasurementValue | None) -> Any:
+def _normalized_value(finding: Finding | None, measurement: MeasurementValue | None) -> Any:
     value, _unit = _value_and_unit(finding, measurement)
     return value
 

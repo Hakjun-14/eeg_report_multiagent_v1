@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from eeg_report_multiagent.schemas.finding import FindingObject
+from eeg_report_multiagent.schemas.finding import Finding
 from eeg_report_multiagent.schemas.measurement import MeasurementValue, StatusSemantic
 from eeg_report_multiagent.schemas.report import AtomicClaimPlan, ClaimSurfaceAction, SurfaceDecision
 from eeg_report_multiagent.schemas.section_contract import SectionRole
@@ -90,7 +90,7 @@ class SurfacePolicy:
 
     def decide(
         self,
-        item: FindingObject | MeasurementValue | AtomicClaimPlan,
+        item: Finding | MeasurementValue | AtomicClaimPlan,
         *,
         measurement: MeasurementValue | None = None,
         missing_evidence: list[str] | None = None,
@@ -176,7 +176,7 @@ class SurfacePolicy:
 
     def _decision_from_finding(
         self,
-        finding: FindingObject,
+        finding: Finding,
         *,
         measurement: MeasurementValue | None,
         missing_evidence: list[str],

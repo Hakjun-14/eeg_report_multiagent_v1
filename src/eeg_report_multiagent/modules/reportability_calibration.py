@@ -4,7 +4,7 @@ from typing import Any, Iterable
 
 from pydantic import BaseModel, Field
 
-from eeg_report_multiagent.schemas.finding import FindingObject
+from eeg_report_multiagent.schemas.finding import Finding
 from eeg_report_multiagent.schemas.measurement import MeasurementValue, StatusSemantic
 from eeg_report_multiagent.schemas.report import ClaimSurfaceAction, SurfaceDecision
 from eeg_report_multiagent.schemas.section_contract import SectionRole
@@ -97,7 +97,7 @@ class EvidenceReportabilityCalibrator:
     def calibrate_decision(
         self,
         *,
-        finding: FindingObject,
+        finding: Finding,
         measurement: MeasurementValue | None,
         evidence_items: list[EvidenceItem],
         shared_board: SharedEvidenceBoard,
@@ -128,7 +128,7 @@ class EvidenceReportabilityCalibrator:
     def calibrate(
         self,
         *,
-        finding: FindingObject,
+        finding: Finding,
         measurement: MeasurementValue | None,
         evidence_items: list[EvidenceItem],
         shared_board: SharedEvidenceBoard,
@@ -171,7 +171,7 @@ class EvidenceReportabilityCalibrator:
 
     def _metadata_status_result(
         self,
-        finding: FindingObject,
+        finding: Finding,
         evidence_items: list[EvidenceItem],
         missing_evidence: list[str],
         payload: dict[str, Any],
@@ -196,7 +196,7 @@ class EvidenceReportabilityCalibrator:
 
     def _status_result(
         self,
-        finding: FindingObject,
+        finding: Finding,
         evidence_items: list[EvidenceItem],
         missing_evidence: list[str],
         payload: dict[str, Any],
@@ -220,7 +220,7 @@ class EvidenceReportabilityCalibrator:
 
     def _pdr_result(
         self,
-        finding: FindingObject,
+        finding: Finding,
         measurement: MeasurementValue | None,
         evidence_items: list[EvidenceItem],
         missing_evidence: list[str],
@@ -254,7 +254,7 @@ class EvidenceReportabilityCalibrator:
 
     def _background_amplitude_result(
         self,
-        finding: FindingObject,
+        finding: Finding,
         measurement: MeasurementValue | None,
         evidence_items: list[EvidenceItem],
         missing_evidence: list[str],
@@ -282,7 +282,7 @@ class EvidenceReportabilityCalibrator:
 
     def _background_screen_result(
         self,
-        finding: FindingObject,
+        finding: Finding,
         evidence_items: list[EvidenceItem],
         missing_evidence: list[str],
         payload: dict[str, Any],
@@ -309,7 +309,7 @@ class EvidenceReportabilityCalibrator:
 
     def _morphology_result(
         self,
-        finding: FindingObject,
+        finding: Finding,
         evidence_items: list[EvidenceItem],
         shared_board: SharedEvidenceBoard,
         missing_evidence: list[str],
@@ -343,7 +343,7 @@ class EvidenceReportabilityCalibrator:
 
     def _localization_result(
         self,
-        finding: FindingObject,
+        finding: Finding,
         measurement: MeasurementValue | None,
         evidence_items: list[EvidenceItem],
         shared_board: SharedEvidenceBoard,
@@ -374,7 +374,7 @@ class EvidenceReportabilityCalibrator:
 
     def _seizure_result(
         self,
-        finding: FindingObject,
+        finding: Finding,
         evidence_items: list[EvidenceItem],
         missing_evidence: list[str],
         payload: dict[str, Any],
@@ -401,7 +401,7 @@ class EvidenceReportabilityCalibrator:
 
     def _hard_block_reason(
         self,
-        finding: FindingObject,
+        finding: Finding,
         measurement: MeasurementValue | None,
         evidence_items: list[EvidenceItem],
     ) -> str | None:
@@ -443,7 +443,7 @@ class EvidenceReportabilityCalibrator:
     def _is_less_permissive(self, action: ClaimSurfaceAction, base: ClaimSurfaceAction) -> bool:
         return _ACTION_RANK[action] < _ACTION_RANK[base]
 
-    def _numeric_value(self, finding: FindingObject, measurement: MeasurementValue | None) -> float | None:
+    def _numeric_value(self, finding: Finding, measurement: MeasurementValue | None) -> float | None:
         q = finding.quantitation or (measurement.quantitation if measurement else None)
         if q is None:
             return None
@@ -453,7 +453,7 @@ class EvidenceReportabilityCalibrator:
             return (q.lower + q.upper) / 2.0
         return None
 
-    def _has_posterior_support(self, finding: FindingObject, measurement: MeasurementValue | None, evidence_items: list[EvidenceItem]) -> bool:
+    def _has_posterior_support(self, finding: Finding, measurement: MeasurementValue | None, evidence_items: list[EvidenceItem]) -> bool:
         posterior_tokens = {"o1", "o2", "oz", "p3", "p4", "pz", "occipital", "posterior", "parietal"}
         if measurement is not None and measurement.metadata.get("pdr_supported") == "true":
             return True
@@ -471,7 +471,7 @@ class EvidenceReportabilityCalibrator:
                 return True
         return False
 
-    def _has_any_provenance(self, evidence_items: list[EvidenceItem], finding: FindingObject, measurement: MeasurementValue | None) -> bool:
+    def _has_any_provenance(self, evidence_items: list[EvidenceItem], finding: Finding, measurement: MeasurementValue | None) -> bool:
         if any(item.time_provenance or item.space_provenance for item in evidence_items):
             return True
         if finding.provenance:

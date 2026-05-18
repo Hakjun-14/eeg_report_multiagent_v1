@@ -1,5 +1,5 @@
 from eeg_report_multiagent.modules.llm_report_synthesizer import EvidenceBoardLLMReportSynthesizer
-from eeg_report_multiagent.schemas import EvidenceBoard, FindingObject, MeasurementValue, QuantitationValue
+from eeg_report_multiagent.schemas import EvidenceBoard, Finding, MeasurementValue, QuantitationValue
 from eeg_report_multiagent.schemas.measurement import QuantitationKind, StatusSemantic
 from eeg_report_multiagent.schemas.provenance import (
     MeasurementProvenance,
@@ -52,7 +52,7 @@ def _board() -> EvidenceBoard:
         quantitation=QuantitationValue(kind=QuantitationKind.EXACT, exact=0.8, unit="ratio"),
         provenance=prov,
     )
-    finding = FindingObject(
+    finding = Finding(
         finding_id="f_slow",
         finding_type="background_slowing",
         assertion=StatusSemantic.PRESENT,

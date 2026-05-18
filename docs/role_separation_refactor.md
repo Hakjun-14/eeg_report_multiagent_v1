@@ -2,7 +2,7 @@
 
 ## Code Flow Reconnaissance
 1. `MeasurementValue` objects are produced by bounded signal/status tools in `tools/common.py`, background/event/parser modules, and test fixtures.
-2. `FindingObject` objects are produced in `background_module.py`, `event_module.py`, and `protocol_state_context_parser.py` from those measurements.
+2. `Finding` objects are produced in `background_module.py`, `event_module.py`, and `protocol_state_context_parser.py` from those measurements.
 3. `EvidenceItem` objects are created by `evidence_item_adapter.py` when `EvidenceBoard.ensure_shared_evidence_board()` materializes the `SharedEvidenceBoard`.
 4. `EvidenceItem.reportability`, `allowed_sections`, and `forbidden_sections` remain compatibility fields but should no longer be treated as the final surface judgment.
 5. `AtomicClaimPlan` objects are produced in `ReportSynthesizer.build_atomic_claim_plan()` from findings plus linked EvidenceItems.

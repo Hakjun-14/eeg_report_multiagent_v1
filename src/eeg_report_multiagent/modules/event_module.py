@@ -5,7 +5,7 @@ from typing import Dict, List
 import numpy as np
 
 from eeg_report_multiagent.agents.event_agent import EventAgent
-from eeg_report_multiagent.schemas.finding import FindingObject
+from eeg_report_multiagent.schemas.finding import Finding
 from eeg_report_multiagent.schemas.measurement import MeasurementValue, StatusSemantic
 from eeg_report_multiagent.schemas.tooling import ToolInvocationRecord
 from eeg_report_multiagent.tools.registry import ToolRegistry
@@ -18,7 +18,7 @@ def _extract_distribution_values(measurements: List[MeasurementValue], measureme
     return np.zeros((0,), dtype=float)
 
 
-def _finding_from_measurement(m: MeasurementValue) -> FindingObject:
+def _finding_from_measurement(m: MeasurementValue) -> Finding:
     finding_type = "event_measurement"
     assertion = StatusSemantic.UNKNOWN
 
@@ -69,7 +69,7 @@ def _finding_from_measurement(m: MeasurementValue) -> FindingObject:
         score = m.quantitation.exact if m.quantitation else None
         assertion = StatusSemantic.PRESENT if (score is not None and score >= 0.70) else StatusSemantic.ABSENT
 
-    return FindingObject(
+    return Finding(
         finding_id=f"f_{m.measurement_id}",
         finding_type=finding_type,
         assertion=assertion,
@@ -97,7 +97,7 @@ class EventModule:
         tools = self.agent.select_tools(scout_summary)
 
         measurements: List[MeasurementValue] = []
-        findings: List[FindingObject] = []
+        findings: List[Finding] = []
         invocations: List[ToolInvocationRecord] = []
 
         # Always run transient candidate first

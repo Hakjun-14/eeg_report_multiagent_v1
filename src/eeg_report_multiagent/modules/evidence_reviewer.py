@@ -15,7 +15,7 @@ from eeg_report_multiagent.schemas.agent import (
     WeakEvidenceRecord,
 )
 from eeg_report_multiagent.schemas.evidence import EvidenceBoard
-from eeg_report_multiagent.schemas.finding import FindingObject
+from eeg_report_multiagent.schemas.finding import Finding
 from eeg_report_multiagent.schemas.measurement import MeasurementValue
 from eeg_report_multiagent.tools import build_background_registry, build_event_registry, build_parser_registry
 
@@ -467,15 +467,15 @@ class EvidenceReviewModule:
             return "boolean"
         return "unknown"
 
-    def _is_signal_finding(self, finding: FindingObject) -> bool:
+    def _is_signal_finding(self, finding: Finding) -> bool:
         if finding.source_module in {"background_module", "event_module"}:
             return True
         return any(p.source_type.value == "signal" for p in finding.provenance)
 
-    def _has_space_provenance(self, finding: FindingObject) -> bool:
+    def _has_space_provenance(self, finding: Finding) -> bool:
         return any(p.space.channels or p.space.region or p.space.laterality for p in finding.provenance)
 
-    def _measurement_ids_for_findings(self, findings: Iterable[FindingObject]) -> List[str]:
+    def _measurement_ids_for_findings(self, findings: Iterable[Finding]) -> List[str]:
         ids: List[str] = []
         for finding in findings:
             ids.extend(finding.measurement_ids)
