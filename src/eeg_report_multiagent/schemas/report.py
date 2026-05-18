@@ -46,15 +46,25 @@ class AtomicClaimPlan(BaseModel):
 
 
 class SurfaceDecision(BaseModel):
-    """Central decision for whether evidence may reach clinical report prose."""
+    """Authoritative report-surface decision for an atomic claim.
 
+    EvidenceItems intentionally remain compatible with legacy policy fields,
+    but report synthesis should treat this object as the surface judgment.
+    """
+
+    decision_id: str = ""
+    claim_id: str = ""
     surface_action: ClaimSurfaceAction
     allowed_sections: List[str] = Field(default_factory=list)
     forbidden_sections: List[str] = Field(default_factory=list)
     clinical_phrase_template_id: Optional[str] = None
     rationale: str
+    hard_deny_reasons: List[str] = Field(default_factory=list)
     evidence_ids: List[str] = Field(default_factory=list)
+    caveat: Optional[str] = None
     debug_payload: dict[str, Any] = Field(default_factory=dict)
+    decided_by: str = "surface_policy"
+    created_at: Optional[str] = None
 
 
 class ClaimSupportLabel(str, Enum):

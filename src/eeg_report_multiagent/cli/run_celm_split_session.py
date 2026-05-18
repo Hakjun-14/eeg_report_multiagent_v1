@@ -16,11 +16,19 @@ from eeg_report_multiagent.modules.final_prose_auditor import FinalProseAuditor
 from eeg_report_multiagent.schemas.evidence import EvidenceBoard
 
 
+def _to_jsonable(payload):
+    if isinstance(payload, BaseModel):
+        return payload.model_dump(mode="json")
+    if isinstance(payload, list):
+        return [_to_jsonable(item) for item in payload]
+    if isinstance(payload, dict):
+        return {key: _to_jsonable(value) for key, value in payload.items()}
+    return payload
+
+
 def _write_json(path: Path, payload: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    if isinstance(payload, BaseModel):
-        payload = payload.model_dump(mode="json")
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    path.write_text(json.dumps(_to_jsonable(payload), ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def main() -> None:
@@ -108,7 +116,8 @@ def main() -> None:
     evidence_board_path = out_dir / "evidence_board.json"
     if evidence_board_path.exists():
         board = EvidenceBoard.model_validate_json(evidence_board_path.read_text(encoding="utf-8"))
-        section_texts = ReportSynthesizer().synthesize_celm_sections(
+        synth = ReportSynthesizer()
+        section_texts = synth.synthesize_celm_sections(
             board=board,
             target_section_names=sample.target_section_names_standardized,
         )
@@ -124,7 +133,10 @@ def main() -> None:
         board = EvidenceBoard.model_validate_json(evidence_board_path.read_text(encoding="utf-8"))
         section_audit = audit_section_contract(sample.target_section_contract, board, generated_report)
         _write_json(out_dir / "section_contract_audit.json", section_audit)
-        claim_plan = ReportSynthesizer().build_atomic_claim_plan(board)
+        synth = ReportSynthesizer()
+        claim_plan = synth.build_atomic_claim_plan(board)
+        surface_decisions = synth.build_surface_decisions(claim_plan, board.ensure_shared_evidence_board())
+        _write_json(out_dir / "surface_decisions.json", surface_decisions)
         final_prose_audit = FinalProseAuditor().audit_report(
             generated_report,
             board.ensure_shared_evidence_board(),

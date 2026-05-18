@@ -370,8 +370,15 @@ def main() -> None:
     _write_json(out_dir / "verification.json", final_state.get("verification", []))
 
     claims = board.claims if board is not None and hasattr(board, "claims") else []
-    atomic_claim_plan = ReportSynthesizer().build_atomic_claim_plan(board) if board is not None else []
+    report_synthesizer = ReportSynthesizer()
+    atomic_claim_plan = report_synthesizer.build_atomic_claim_plan(board) if board is not None else []
+    surface_decisions = (
+        report_synthesizer.build_surface_decisions(atomic_claim_plan, board.ensure_shared_evidence_board())
+        if board is not None
+        else []
+    )
     _write_json(out_dir / "atomic_claim_plan.json", atomic_claim_plan)
+    _write_json(out_dir / "surface_decisions.json", surface_decisions)
     final_prose_audit = None
     if board is not None:
         final_prose_audit = FinalProseAuditor().audit_report(
@@ -425,6 +432,7 @@ def main() -> None:
             "detail_section": final_state.get("detail_section"),
             "impression_section": final_state.get("impression_section"),
             "atomic_claim_plan": atomic_claim_plan,
+            "surface_decisions": surface_decisions,
             "claims": claims,
         },
         "final_prose_audit": final_prose_audit,
@@ -441,6 +449,7 @@ def main() -> None:
             "llm_finding_proposals": len((final_state.get("llm_finding_proposals", {}) or {}).get("finding_proposals", [])),
             "verification_records": len(final_state.get("verification", [])),
             "atomic_claim_plans": len(atomic_claim_plan),
+            "surface_decisions": len(surface_decisions),
             "audit_pass": final_prose_audit.pass_fail == "pass" if final_prose_audit else None,
             "unsupported_numeric_count": len(final_prose_audit.unsupported_numeric_mentions) if final_prose_audit else 0,
             "debug_leak_count": len(final_prose_audit.debug_leaks) if final_prose_audit else 0,
@@ -466,6 +475,7 @@ def main() -> None:
         "impression.txt",
         "verification.json",
         "atomic_claim_plan.json",
+        "surface_decisions.json",
         "final_prose_audit.json",
         "inference_trace.json",
         "agent_deliberations.json",
@@ -481,7 +491,7 @@ def main() -> None:
             "raw_eeg_external_api": "forbidden",
             "gt_report_as_inference_input": "forbidden",
             "intermediate_representation": "measurement -> finding -> evidence_board -> report_text",
-            "primary_artifacts": ["manifest.json", "evidence_board.json", "inference_trace.json"],
+            "primary_artifacts": ["manifest.json", "evidence_board.json", "surface_decisions.json", "inference_trace.json"],
             "human_readable_artifacts": ["detail.txt", "impression.txt"],
         },
     }

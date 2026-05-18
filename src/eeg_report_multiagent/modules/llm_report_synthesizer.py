@@ -66,16 +66,30 @@ class EvidenceBoardLLMReportSynthesizer:
 
     def _build_payload(self, board: EvidenceBoard, target_section_names: List[str]) -> Dict[str, Any]:
         claim_plans = self.report_synthesizer.build_atomic_claim_plan(board)
+        surface_decisions = self.report_synthesizer.build_surface_decisions(
+            claim_plans,
+            board.ensure_shared_evidence_board(),
+        )
+        decision_by_claim = {decision.claim_id: decision for decision in surface_decisions}
         surface_plans = [
             plan
             for plan in claim_plans
-            if plan.surface_action in {ClaimSurfaceAction.ALLOW, ClaimSurfaceAction.CAVEAT}
+            if (
+                decision_by_claim.get(plan.plan_id, self.surface_policy.decide(plan)).surface_action
+                in {ClaimSurfaceAction.ALLOW, ClaimSurfaceAction.CAVEAT}
+            )
             and not self.surface_policy.contains_forbidden_surface_text(plan.proposed_text)
         ]
+        surface_claim_ids = {plan.plan_id for plan in surface_plans}
         return {
             "session_id": board.session_id,
             "target_section_names": target_section_names,
             "atomic_claim_plans": [self._claim_plan_payload(plan) for plan in surface_plans],
+            "surface_decisions": [
+                self._surface_decision_payload(decision)
+                for decision in surface_decisions
+                if decision.claim_id in surface_claim_ids
+            ],
             "surface_payload_summary": {
                 "total_atomic_claim_plans": len(claim_plans),
                 "surface_allowed_or_caveated_claim_plans": len(surface_plans),
@@ -127,6 +141,21 @@ class EvidenceBoardLLMReportSynthesizer:
             "missing_evidence": plan.missing_evidence,
             "confidence": plan.confidence,
             "rationale": plan.rationale,
+        }
+
+    def _surface_decision_payload(self, decision: Any) -> Dict[str, Any]:
+        return {
+            "decision_id": decision.decision_id,
+            "claim_id": decision.claim_id,
+            "surface_action": decision.surface_action.value,
+            "allowed_sections": decision.allowed_sections,
+            "forbidden_sections": decision.forbidden_sections,
+            "clinical_phrase_template_id": decision.clinical_phrase_template_id,
+            "rationale": decision.rationale,
+            "hard_deny_reasons": decision.hard_deny_reasons,
+            "evidence_ids": decision.evidence_ids,
+            "caveat": decision.caveat,
+            "decided_by": decision.decided_by,
         }
 
     def _audit_record_count(self, board: EvidenceBoard) -> int:

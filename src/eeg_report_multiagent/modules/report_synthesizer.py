@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Dict, List
+import re
+from typing import Dict, List, Mapping
 
 from eeg_report_multiagent.schemas.evidence import EvidenceBoard
 from eeg_report_multiagent.schemas.finding import FindingObject
@@ -37,9 +38,10 @@ class ReportSynthesizer:
         claims: List[ClaimRecord] = []
         claim_plan = self.build_atomic_claim_plan(board)
         shared_board = board.ensure_shared_evidence_board()
-        detail_lines = self._section_lines_from_plans(claim_plan, SectionRole.DETAIL)
+        surface_decisions = self.build_surface_decisions(claim_plan, shared_board)
+        detail_lines = self._section_lines_from_plans(claim_plan, SectionRole.DETAIL, surface_decisions)
 
-        for plan in self._surfaceable_plans(claim_plan):
+        for plan in self._surfaceable_plans(claim_plan, surface_decisions):
             claim_id = f"c_{plan.plan_id}"
             claims.append(
                 ClaimRecord(
@@ -54,7 +56,7 @@ class ReportSynthesizer:
         if not detail_lines:
             detail_lines = [self.surface_policy.safe_fallback_for_role(SectionRole.DETAIL)]
 
-        impression_lines = self._section_lines_from_plans(claim_plan, SectionRole.IMPRESSION)
+        impression_lines = self._section_lines_from_plans(claim_plan, SectionRole.IMPRESSION, surface_decisions)
         if not impression_lines:
             impression_lines = [self.surface_policy.safe_fallback_for_role(SectionRole.IMPRESSION)]
 
@@ -64,7 +66,7 @@ class ReportSynthesizer:
                 claim_id="c_impression_summary",
                 section_type=ReportSectionType.IMPRESSION,
                 text=imp_text,
-                linked_finding_ids=[fid for plan in self._surfaceable_plans(claim_plan) for fid in plan.linked_finding_ids],
+                linked_finding_ids=[fid for plan in self._surfaceable_plans(claim_plan, surface_decisions) for fid in plan.linked_finding_ids],
             )
         )
 
@@ -79,6 +81,39 @@ class ReportSynthesizer:
             claim_ids=[c.claim_id for c in claims if c.section_type == ReportSectionType.IMPRESSION],
         )
         return detail_section, impression_section, claims
+
+    def build_surface_decisions(
+        self,
+        claim_plan: List[AtomicClaimPlan],
+        shared_board: SharedEvidenceBoard | None = None,
+    ) -> List[SurfaceDecision]:
+        """Build first-class report-surface decisions for atomic claims.
+
+        `AtomicClaimPlan.surface_action` remains as a legacy mirror, but this
+        list is the authoritative object used by report synthesis and persisted
+        as `surface_decisions.json`.
+        """
+        decisions: List[SurfaceDecision] = []
+        for plan in claim_plan:
+            base = self.surface_policy.decide(plan)
+            hard_deny = self._hard_deny_reasons(plan, base, shared_board)
+            action = base.surface_action
+            decided_by = "surface_policy"
+            if hard_deny and action in {ClaimSurfaceAction.ALLOW, ClaimSurfaceAction.CAVEAT}:
+                action = ClaimSurfaceAction.BLOCK
+                decided_by = "surface_policy_hard_deny"
+            decisions.append(
+                base.model_copy(
+                    update={
+                        "decision_id": f"sd_{plan.plan_id}",
+                        "claim_id": plan.plan_id,
+                        "surface_action": action,
+                        "hard_deny_reasons": hard_deny,
+                        "decided_by": decided_by,
+                    }
+                )
+            )
+        return decisions
 
     def build_atomic_claim_plan(self, board: EvidenceBoard) -> List[AtomicClaimPlan]:
         """Plan report-surface claims from evidence-board findings.
@@ -201,10 +236,11 @@ class ReportSynthesizer:
         """
         router = SectionRouter()
         claim_plan = self.build_atomic_claim_plan(board)
+        surface_decisions = self.build_surface_decisions(claim_plan, board.ensure_shared_evidence_board())
         section_texts: dict[str, str] = {}
         for section_name in target_section_names:
             role = router.role_for_section(section_name)
-            section_texts[section_name] = self._section_text_from_plans(claim_plan, role)
+            section_texts[section_name] = self._section_text_from_plans(claim_plan, role, surface_decisions)
         return section_texts
 
     def _first_measurement(self, finding: FindingObject, measurement_index: dict[str, MeasurementValue]) -> MeasurementValue | None:
@@ -247,29 +283,109 @@ class ReportSynthesizer:
             StatusSemantic.UNKNOWN: "unknown",
         }[s]
 
-    def _surfaceable_plans(self, claim_plan: List[AtomicClaimPlan]) -> List[AtomicClaimPlan]:
+    def _surfaceable_plans(
+        self,
+        claim_plan: List[AtomicClaimPlan],
+        surface_decisions: List[SurfaceDecision] | None = None,
+    ) -> List[AtomicClaimPlan]:
+        decision_by_claim = self._decision_by_claim_id(surface_decisions)
         return [
             plan
             for plan in claim_plan
-            if plan.surface_action in {ClaimSurfaceAction.ALLOW, ClaimSurfaceAction.CAVEAT}
+            if self._decision_for_plan(plan, decision_by_claim).surface_action in {ClaimSurfaceAction.ALLOW, ClaimSurfaceAction.CAVEAT}
             and not self.surface_policy.contains_forbidden_surface_text(plan.proposed_text)
         ]
 
-    def _section_lines_from_plans(self, claim_plan: List[AtomicClaimPlan], role: SectionRole) -> List[str]:
+    def _section_lines_from_plans(
+        self,
+        claim_plan: List[AtomicClaimPlan],
+        role: SectionRole,
+        surface_decisions: List[SurfaceDecision] | None = None,
+    ) -> List[str]:
         lines: List[str] = []
+        decision_by_claim = self._decision_by_claim_id(surface_decisions)
         for plan in claim_plan:
-            if not self.surface_policy.plan_allowed_in_section(plan, role):
+            decision = self._decision_for_plan(plan, decision_by_claim)
+            if not self._decision_allows_section(decision, role):
                 continue
             if self.surface_policy.contains_forbidden_surface_text(plan.proposed_text):
                 continue
             lines.append(plan.proposed_text)
         return lines
 
-    def _section_text_from_plans(self, claim_plan: List[AtomicClaimPlan], role: SectionRole) -> str:
-        lines = self._section_lines_from_plans(claim_plan, role)
+    def _section_text_from_plans(
+        self,
+        claim_plan: List[AtomicClaimPlan],
+        role: SectionRole,
+        surface_decisions: List[SurfaceDecision] | None = None,
+    ) -> str:
+        lines = self._section_lines_from_plans(claim_plan, role, surface_decisions)
         if lines:
             return " ".join(lines)
         return self.surface_policy.safe_fallback_for_role(role)
+
+    def _decision_by_claim_id(self, surface_decisions: List[SurfaceDecision] | None) -> dict[str, SurfaceDecision]:
+        return {decision.claim_id: decision for decision in surface_decisions or [] if decision.claim_id}
+
+    def _decision_for_plan(
+        self,
+        plan: AtomicClaimPlan,
+        decision_by_claim: Mapping[str, SurfaceDecision],
+    ) -> SurfaceDecision:
+        return decision_by_claim.get(plan.plan_id) or self.surface_policy.decide(plan)
+
+    def _decision_allows_section(self, decision: SurfaceDecision, role: SectionRole) -> bool:
+        if decision.surface_action not in {ClaimSurfaceAction.ALLOW, ClaimSurfaceAction.CAVEAT}:
+            return False
+        if role.value in decision.forbidden_sections:
+            return False
+        return not decision.allowed_sections or role.value in decision.allowed_sections
+
+    def _hard_deny_reasons(
+        self,
+        plan: AtomicClaimPlan,
+        decision: SurfaceDecision,
+        shared_board: SharedEvidenceBoard | None,
+    ) -> List[str]:
+        reasons: List[str] = []
+        text = plan.proposed_text.lower()
+        if self.surface_policy.contains_forbidden_surface_text(plan.proposed_text):
+            reasons.append("forbidden_debug_or_proxy_surface_text")
+        if self._looks_like_boundary_pdr(plan, text):
+            reasons.append("boundary_or_global_low_frequency_pdr_forbidden")
+        linked_evidence = self._linked_evidence_items(plan, shared_board)
+        if any(item.evidence_type == EvidenceType.DEBUG for item in linked_evidence):
+            reasons.append("debug_evidence_cannot_surface")
+        if self._looks_like_seizure_claim(plan, text) and not self._has_seizure_specific_evidence(linked_evidence):
+            reasons.append("seizure_claim_without_seizure_specific_evidence")
+        if decision.surface_action == ClaimSurfaceAction.DEBUG_ONLY:
+            reasons.append("debug_only_surface_decision")
+        return sorted(set(reasons))
+
+    def _linked_evidence_items(self, plan: AtomicClaimPlan, shared_board: SharedEvidenceBoard | None) -> list:
+        if shared_board is None:
+            return []
+        out = []
+        for evidence_id in plan.evidence_ids:
+            try:
+                out.append(shared_board.get_evidence(evidence_id))
+            except KeyError:
+                continue
+        return out
+
+    def _looks_like_boundary_pdr(self, plan: AtomicClaimPlan, text: str) -> bool:
+        if "pdr" not in plan.claim_type and "posterior dominant" not in text and "posterior alpha" not in text:
+            return False
+        return bool(re.search(r"\b0(?:\\.0)?\\s*[-–]?\\s*\\.?\s*5\\s*hz\\b|\\b0\\.5\\s*hz\\b", text))
+
+    def _looks_like_seizure_claim(self, plan: AtomicClaimPlan, text: str) -> bool:
+        if "seizure" not in plan.claim_type and "seizure" not in text:
+            return False
+        negative_safe = "no seizure-specific evidence" in text or "no surface-allowed" in text
+        return not negative_safe
+
+    def _has_seizure_specific_evidence(self, evidence_items: list) -> bool:
+        return any(str(getattr(item.clinical_target, "value", item.clinical_target)) == "seizure_evidence" for item in evidence_items)
 
     def _claim_text_from_surface_decision(
         self,

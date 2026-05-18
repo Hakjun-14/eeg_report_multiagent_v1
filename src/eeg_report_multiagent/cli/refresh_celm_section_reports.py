@@ -25,11 +25,19 @@ def _read_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _write_json(path: Path, payload: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
+def _to_jsonable(payload):
     if isinstance(payload, BaseModel):
-        payload = payload.model_dump(mode="json")
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        return payload.model_dump(mode="json")
+    if isinstance(payload, list):
+        return [_to_jsonable(item) for item in payload]
+    if isinstance(payload, dict):
+        return {key: _to_jsonable(value) for key, value in payload.items()}
+    return payload
+
+
+def _write_json(path: Path, payload: object) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(_to_jsonable(payload), ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def _target_sections(artifact_dir: Path) -> List[str]:
@@ -79,6 +87,8 @@ def refresh_batch(batch_root: Path, celm_results_dir: Path | None = None) -> Dic
                 _write_json(contract_path, contract)
             detail_text = (artifact_dir / "detail.txt").read_text(encoding="utf-8")
             impression_text = (artifact_dir / "impression.txt").read_text(encoding="utf-8")
+            claim_plan = synth.build_atomic_claim_plan(board)
+            surface_decisions = synth.build_surface_decisions(claim_plan, board.ensure_shared_evidence_board())
             section_texts = synth.synthesize_celm_sections(board, target_sections)
             generated_report = make_celm_generated_report(
                 target_section_names=target_sections,
@@ -86,6 +96,8 @@ def refresh_batch(batch_root: Path, celm_results_dir: Path | None = None) -> Dic
                 impression_text=impression_text,
                 section_texts=section_texts,
             )
+            _write_json(artifact_dir / "atomic_claim_plan.json", claim_plan)
+            _write_json(artifact_dir / "surface_decisions.json", surface_decisions)
             _write_json(artifact_dir / "celm_section_texts.json", section_texts)
             _write_json(artifact_dir / "celm_generated_report.json", generated_report)
             _write_json(artifact_dir / "section_contract_audit.json", audit_section_contract(contract, board, generated_report))
