@@ -123,16 +123,19 @@ class EvidenceReviewModule:
         findings: List[Dict[str, Any]] = []
         for finding in board.findings:
             q = finding.quantitation
-            source_types = sorted({str(p.source_type.value) for p in finding.provenance})
-            has_time = any(p.time.window_indices or p.time.start_sec is not None or p.time.end_sec is not None for p in finding.provenance)
-            has_space = any(p.space.channels or p.space.region or p.space.laterality for p in finding.provenance)
-            has_measurement_provenance = any(p.measurement is not None for p in finding.provenance)
+            linked_measurements = [measurements_by_id[mid] for mid in finding.measurement_ids if mid in measurements_by_id]
+            provenance = [m.provenance for m in linked_measurements] or list(finding.provenance)
+            source_types = sorted({str(p.source_type.value) for p in provenance})
+            has_time = any(p.time.window_indices or p.time.start_sec is not None or p.time.end_sec is not None for p in provenance)
+            has_space = any(p.space.channels or p.space.region or p.space.laterality for p in provenance)
+            has_measurement_provenance = any(p.measurement is not None for p in provenance)
+            confidence = next((m.confidence for m in linked_measurements if m.confidence is not None), finding.confidence)
             findings.append(
                 {
                     "finding_id": finding.finding_id,
                     "finding_type": finding.finding_type,
                     "assertion": finding.assertion.value,
-                    "confidence": finding.confidence,
+                    "confidence": confidence,
                     "quantitation": {
                         "kind": q.kind.value,
                         "unit": q.unit,
@@ -144,10 +147,9 @@ class EvidenceReviewModule:
                     if q is not None
                     else None,
                     "measurement_ids": finding.measurement_ids,
-                    "source_module": finding.source_module,
                     "provenance_summary": {
                         "source_types": source_types,
-                        "provenance_count": len(finding.provenance),
+                        "provenance_count": len(provenance),
                         "has_time": has_time,
                         "has_space": has_space,
                         "has_measurement_provenance": has_measurement_provenance,
@@ -255,8 +257,9 @@ class EvidenceReviewModule:
         rejected: List[RejectedToolRequestProposal] = []
 
         findings_by_type = {f.finding_type: f for f in board.findings}
-        signal_findings = [f for f in board.findings if self._is_signal_finding(f)]
-        missing_space = [f for f in signal_findings if not self._has_space_provenance(f)]
+        measurements_by_id = {m.measurement_id: m for m in board.measurements}
+        signal_findings = [f for f in board.findings if self._is_signal_finding(f, measurements_by_id)]
+        missing_space = [f for f in signal_findings if not self._has_space_provenance(f, measurements_by_id)]
         if missing_space:
             linked = [f.finding_id for f in missing_space]
             evidence_gaps.append(
@@ -467,13 +470,17 @@ class EvidenceReviewModule:
             return "boolean"
         return "unknown"
 
-    def _is_signal_finding(self, finding: Finding) -> bool:
-        if finding.source_module in {"background_module", "event_module"}:
-            return True
-        return any(p.source_type.value == "signal" for p in finding.provenance)
+    def _is_signal_finding(self, finding: Finding, measurements_by_id: Dict[str, MeasurementValue]) -> bool:
+        provenance = self._linked_provenance(finding, measurements_by_id)
+        return any(p.source_type.value == "signal" for p in provenance)
 
-    def _has_space_provenance(self, finding: Finding) -> bool:
-        return any(p.space.channels or p.space.region or p.space.laterality for p in finding.provenance)
+    def _has_space_provenance(self, finding: Finding, measurements_by_id: Dict[str, MeasurementValue]) -> bool:
+        provenance = self._linked_provenance(finding, measurements_by_id)
+        return any(p.space.channels or p.space.region or p.space.laterality for p in provenance)
+
+    def _linked_provenance(self, finding: Finding, measurements_by_id: Dict[str, MeasurementValue]):
+        records = [measurements_by_id[mid].provenance for mid in finding.measurement_ids if mid in measurements_by_id]
+        return records or list(finding.provenance)
 
     def _measurement_ids_for_findings(self, findings: Iterable[Finding]) -> List[str]:
         ids: List[str] = []

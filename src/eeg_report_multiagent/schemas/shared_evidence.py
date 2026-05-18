@@ -37,7 +37,12 @@ class ClinicalTarget(str, Enum):
 
 
 class EvidenceItem(BaseModel):
-    """Typed evidence unit between measurements/findings and report-surface claims."""
+    """Typed patient-specific fact/provenance unit.
+
+    The policy-like fields (`reportability`, section lists, `rationale`,
+    `caveat`) are retained for artifact compatibility only. New surface
+    decisions should be made by `SurfaceDecision`, not by this schema.
+    """
 
     evidence_id: str
     source_module: str
@@ -46,17 +51,17 @@ class EvidenceItem(BaseModel):
     value: Any = None
     unit: Optional[str] = None
     normalized_value: Optional[Any] = None
-    confidence: Optional[float] = None
-    reliability: Optional[float] = None
+    confidence: Optional[float] = Field(default=None, description="Deprecated compatibility; prefer measurement confidence or SurfaceDecision metadata.")
+    reliability: Optional[float] = Field(default=None, description="Deprecated compatibility; evidence weighting should live outside EvidenceItem.")
     time_provenance: Optional[Dict[str, Any]] = None
     space_provenance: Optional[Dict[str, Any]] = None
     measurement_ids: List[str] = Field(default_factory=list)
     finding_ids: List[str] = Field(default_factory=list)
-    reportability: ClaimSurfaceAction
-    allowed_sections: List[str] = Field(default_factory=list)
-    forbidden_sections: List[str] = Field(default_factory=list)
-    rationale: Optional[str] = None
-    caveat: Optional[str] = None
+    reportability: ClaimSurfaceAction = Field(description="Deprecated compatibility; authoritative surface action is SurfaceDecision.surface_action.")
+    allowed_sections: List[str] = Field(default_factory=list, description="Deprecated compatibility; authoritative section gating is SurfaceDecision.")
+    forbidden_sections: List[str] = Field(default_factory=list, description="Deprecated compatibility; authoritative section gating is SurfaceDecision.")
+    rationale: Optional[str] = Field(default=None, description="Deprecated compatibility; use SurfaceDecision.rationale for report-surface judgment.")
+    caveat: Optional[str] = Field(default=None, description="Deprecated compatibility; use SurfaceDecision.caveat for surface wording.")
     debug_payload: Dict[str, Any] = Field(default_factory=dict)
     created_by: str
     created_at: Optional[str] = None

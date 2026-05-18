@@ -25,3 +25,9 @@
 - `SurfacePolicy` no longer uses `EvidenceItem.reportability` as an evidence-gate input; it uses evidence type, clinical target, and deterministic hard-deny rules.
 - `FinalProseAuditor` treats numeric support as valid when the numeric EvidenceItem is linked to an allow/caveat AtomicClaimPlan; legacy EvidenceItem reportability is only a fallback when no claim-plan trace is supplied.
 - Remaining `EvidenceItem.reportability` reads are compatibility diagnostics in `SharedEvidenceBoard` and evidence-flow audit outputs, not authoritative report-surface routing.
+
+## Stage 2.99 Schema Slimming
+- `Finding` keeps only clinical grouping semantics in new runtime outputs: `finding_id`, `finding_type`, `assertion`, quantitation, and linked `measurement_ids`.
+- Legacy `Finding.provenance`, `Finding.confidence`, and `Finding.source_module` remain loadable but are no longer populated by background/event/protocol modules.
+- `EvidenceItem` remains the patient-specific evidence pool; policy fields are compatibility metadata, not authoritative report-surface decisions.
+- Report-surface judgment remains `AtomicClaimPlan -> SurfaceDecision -> SurfacePolicy -> Report`.

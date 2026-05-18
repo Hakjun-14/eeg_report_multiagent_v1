@@ -91,7 +91,7 @@ def build_shared_evidence_board(
 def evidence_item_from_finding(finding: Finding, measurement: MeasurementValue | None = None) -> EvidenceItem:
     evidence_type, target, reportability, rationale, allowed = _classify_finding(finding, measurement)
     value, unit = _value_and_unit(finding, measurement)
-    provenance = finding.provenance or ([measurement.provenance] if measurement is not None else [])
+    provenance = _linked_provenance(finding, measurement)
     return EvidenceItem(
         evidence_id=f"ev_{finding.finding_id}",
         source_module=_source_module(finding, measurement),
@@ -100,7 +100,7 @@ def evidence_item_from_finding(finding: Finding, measurement: MeasurementValue |
         value=value,
         unit=unit,
         normalized_value=_normalized_value(finding, measurement),
-        confidence=finding.confidence if finding.confidence is not None else (measurement.confidence if measurement else None),
+        confidence=measurement.confidence if measurement is not None else finding.confidence,
         reliability=_reliability(evidence_type, reportability, provenance),
         time_provenance=_time_dict(provenance),
         space_provenance=_space_dict(provenance),
@@ -247,7 +247,7 @@ def _classify_finding(
         target = ClinicalTarget.SEIZURE_EVIDENCE if "seizure" in mname else ClinicalTarget.UNCERTAINTY
         return EvidenceType.DEBUG, target, ClaimSurfaceAction.DEBUG_ONLY, "Internal score measurements are audit/debug evidence only.", []
     if finding.finding_type == "background_pdr_frequency":
-        if finding.assertion == StatusSemantic.PRESENT and _has_time_or_space(finding.provenance or ([measurement.provenance] if measurement else [])):
+        if finding.assertion == StatusSemantic.PRESENT and _has_time_or_space(_linked_provenance(finding, measurement)):
             action = ClaimSurfaceAction.ALLOW if measurement is not None and measurement.metadata.get("pdr_supported") == "true" else ClaimSurfaceAction.CAVEAT
             return EvidenceType.DERIVED, ClinicalTarget.PDR, action, "PDR evidence is derived and may surface only with valid provenance and policy gating.", [SectionRole.BACKGROUND.value, SectionRole.DETAIL.value, SectionRole.SLEEP.value]
         return EvidenceType.PROXY, ClinicalTarget.PDR, ClaimSurfaceAction.BLOCK, "PDR evidence lacks sufficient provenance for report surface.", []
@@ -282,8 +282,6 @@ def _classify_measurement(measurement: MeasurementValue) -> tuple[EvidenceType, 
 
 
 def _source_module(finding: Finding | None, measurement: MeasurementValue | None) -> str:
-    if finding and finding.source_module:
-        return finding.source_module
     prov = measurement.provenance if measurement is not None else None
     if prov and prov.source_type == SourceType.METADATA:
         return "metadata"
@@ -294,6 +292,12 @@ def _source_module(finding: Finding | None, measurement: MeasurementValue | None
     if measurement and measurement.measurement_name.startswith("background"):
         return "background"
     return "unknown"
+
+
+def _linked_provenance(finding: Finding | None, measurement: MeasurementValue | None) -> List[ProvenanceRecord]:
+    if measurement is not None:
+        return [measurement.provenance]
+    return list(finding.provenance) if finding is not None else []
 
 
 def _value_and_unit(finding: Finding | None, measurement: MeasurementValue | None) -> tuple[Any, str | None]:

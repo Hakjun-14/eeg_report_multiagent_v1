@@ -457,9 +457,7 @@ class EvidenceReportabilityCalibrator:
         posterior_tokens = {"o1", "o2", "oz", "p3", "p4", "pz", "occipital", "posterior", "parietal"}
         if measurement is not None and measurement.metadata.get("pdr_supported") == "true":
             return True
-        records = list(finding.provenance)
-        if measurement is not None:
-            records.append(measurement.provenance)
+        records = [measurement.provenance] if measurement is not None else list(finding.provenance)
         for record in records:
             values = [record.space.region or "", record.space.laterality or "", *record.space.channels]
             if any(str(value).lower() in posterior_tokens for value in values):
@@ -474,9 +472,7 @@ class EvidenceReportabilityCalibrator:
     def _has_any_provenance(self, evidence_items: list[EvidenceItem], finding: Finding, measurement: MeasurementValue | None) -> bool:
         if any(item.time_provenance or item.space_provenance for item in evidence_items):
             return True
-        if finding.provenance:
-            return True
-        return measurement is not None and measurement.provenance is not None
+        return measurement is not None and measurement.provenance is not None or bool(finding.provenance)
 
     def _has_any_space(self, evidence_items: Iterable[EvidenceItem]) -> bool:
         for item in evidence_items:

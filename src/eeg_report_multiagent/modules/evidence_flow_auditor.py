@@ -308,8 +308,9 @@ class EvidenceFlowAuditor:
         if target in spec.clinical_targets:
             item_text = " ".join([
                 item.evidence_id,
-                str(item.rationale or ""),
-                str(item.caveat or ""),
+                str(item.value),
+                str(item.normalized_value),
+                str(item.debug_payload),
                 " ".join(item.measurement_ids),
                 " ".join(item.finding_ids),
             ])
@@ -350,17 +351,17 @@ class EvidenceFlowAuditor:
     ) -> list[str]:
         del atomic_claims
         reasons: list[str] = []
-        if "state" in spec.required_support and not self._has_reportable_target(evidence_items, "state"):
+        if "state" in spec.required_support and not self._has_non_debug_target(evidence_items, "state"):
             reasons.append("missing_state_support")
-        if "protocol" in spec.required_support and not self._has_reportable_target(evidence_items, "protocol"):
+        if "protocol" in spec.required_support and not self._has_non_debug_target(evidence_items, "protocol"):
             reasons.append("missing_protocol_support")
-        if "morphology" in spec.required_support and not self._has_reportable_target(evidence_items, "epileptiform_morphology"):
+        if "morphology" in spec.required_support and not self._has_non_debug_target(evidence_items, "epileptiform_morphology"):
             reasons.append("missing_morphology_support")
         if "localization" in spec.required_support and not self._has_space_provenance(evidence_items):
             reasons.append("missing_localization_support")
         if "topography" in spec.required_support and not self._has_space_provenance(evidence_items):
             reasons.append("missing_localization_support")
-        if "seizure" in spec.required_support and not self._has_reportable_target(evidence_items, "seizure_evidence"):
+        if "seizure" in spec.required_support and not self._has_non_debug_target(evidence_items, "seizure_evidence"):
             reasons.append("missing_seizure_specific_evidence")
         return reasons
 
@@ -394,7 +395,7 @@ class EvidenceFlowAuditor:
         return has_target and (has_time or has_space or has_value)
 
     def _internal_debug_like(self, item: EvidenceItem) -> bool:
-        text = " ".join([item.evidence_id, str(item.rationale or ""), str(item.value), str(item.unit or "")]).lower()
+        text = " ".join([item.evidence_id, str(item.value), str(item.unit or ""), str(item.debug_payload)]).lower()
         return any(
             needle in text
             for needle in [
@@ -410,10 +411,10 @@ class EvidenceFlowAuditor:
             ]
         )
 
-    def _has_reportable_target(self, evidence_items: Sequence[EvidenceItem], target: str) -> bool:
+    def _has_non_debug_target(self, evidence_items: Sequence[EvidenceItem], target: str) -> bool:
         return any(
             str(getattr(item.clinical_target, "value", item.clinical_target)) == target
-            and item.reportability in {ClaimSurfaceAction.ALLOW, ClaimSurfaceAction.CAVEAT}
+            and str(getattr(item.evidence_type, "value", item.evidence_type)) != "debug"
             for item in evidence_items
         )
 

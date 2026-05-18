@@ -340,7 +340,7 @@ class GTRequiredSuppressionAuditor:
         if claim.claim_type.startswith("localization") or claim.claim_type in {"electrode_maxima", "field"}:
             if not any(key in identity for key in ("localization", "laterality", "field", "electrode", "maxima", "peak")):
                 return False
-            if any(bad in text for bad in ("ratio", "index", "concentration")) and not finding.provenance:
+            if any(bad in text for bad in ("ratio", "index", "concentration")):
                 return False
         return _target_keywords(claim.claim_type, text)
 
@@ -356,7 +356,7 @@ class GTRequiredSuppressionAuditor:
         if any(fid in evidence.finding_ids for fid in [f.finding_id for f in finding_hits]):
             return True
         target = str(getattr(evidence.clinical_target, "value", evidence.clinical_target))
-        text = _norm(" ".join([evidence.evidence_id, evidence.source_module, target, str(evidence.value), str(evidence.normalized_value), str(evidence.rationale), str(evidence.space_provenance)]))
+        text = _norm(" ".join([evidence.evidence_id, evidence.source_module, target, str(evidence.value), str(evidence.normalized_value), str(evidence.space_provenance), str(evidence.debug_payload)]))
         if claim.claim_type == "event_amplitude":
             return target in {ClinicalTarget.EVENT_CANDIDATE.value, ClinicalTarget.EPILEPTIFORM_MORPHOLOGY.value} and "amplitude" in text and _unit_norm(evidence.unit or "") == "uV"
         if _claim_is_pdr(claim):
@@ -713,26 +713,26 @@ def _space_supports_posterior(evidence: EvidenceItem) -> bool:
 
 def _space_supports_localization(evidence: EvidenceItem) -> bool:
     space = evidence.space_provenance or {}
-    text = _norm(" ".join([str(space), str(evidence.value), str(evidence.normalized_value), evidence.rationale or ""]))
+    text = _norm(" ".join([str(space), str(evidence.value), str(evidence.normalized_value), str(evidence.debug_payload)]))
     has_region = any(key in text for key in ("left", "right", "frontal", "temporal", "posterior", "generalized", "bifrontal"))
     has_channel = bool(space.get("channels") or space.get("electrode_maxima") or _electrodes(text))
     return has_region and has_channel
 
 
 def _is_ratio_only(evidence: EvidenceItem) -> bool:
-    text = _norm(" ".join([evidence.evidence_id, str(evidence.value), str(evidence.normalized_value), evidence.rationale or ""]))
+    text = _norm(" ".join([evidence.evidence_id, str(evidence.value), str(evidence.normalized_value), str(evidence.debug_payload)]))
     return any(key in text for key in ("ratio", "index", "concentration")) and not _space_supports_localization(evidence)
 
 
 def _is_internal_score_or_burden(evidence: EvidenceItem) -> bool:
-    text = _norm(" ".join([evidence.evidence_id, str(evidence.value), str(evidence.normalized_value), evidence.rationale or "", str(evidence.debug_payload)]))
+    text = _norm(" ".join([evidence.evidence_id, str(evidence.value), str(evidence.normalized_value), str(evidence.debug_payload)]))
     return any(key in text for key in ("candidate burden", "candidate_burden", "support score", "support_score", "likelihood", "ratio", "index", "field concentration")) or evidence.evidence_type == EvidenceType.DEBUG
 
 
 def _appropriately_blocked(claim: GTAtomicClaim, evidence: EvidenceItem) -> bool:
     if _claim_is_pdr(claim):
         value = _evidence_numeric_value(evidence)
-        text = _norm(" ".join([evidence.evidence_id, evidence.rationale or ""]))
+        text = _norm(" ".join([evidence.evidence_id, str(evidence.debug_payload)]))
         return (_unit_norm(evidence.unit or "") == "Hz" and value is not None and value < 6.0) or "boundary" in text
     if _claim_is_seizure_absent(claim):
         return str(getattr(evidence.clinical_target, "value", evidence.clinical_target)) != ClinicalTarget.SEIZURE_EVIDENCE.value

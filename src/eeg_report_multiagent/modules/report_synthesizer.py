@@ -167,7 +167,7 @@ class ReportSynthesizer:
                     required_evidence=required,
                     missing_evidence=missing,
                     surface_action=decision.surface_action,
-                    confidence=finding.confidence,
+                    confidence=measurement.confidence if measurement is not None else None,
                     rationale=decision.rationale,
                     allowed_sections=decision.allowed_sections,
                     forbidden_sections=decision.forbidden_sections,

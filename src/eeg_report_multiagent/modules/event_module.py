@@ -75,9 +75,6 @@ def _finding_from_measurement(m: MeasurementValue) -> Finding:
         assertion=assertion,
         quantitation=m.quantitation,
         measurement_ids=[m.measurement_id],
-        provenance=[m.provenance],
-        confidence=m.confidence,
-        source_module="event_module",
     )
 
 

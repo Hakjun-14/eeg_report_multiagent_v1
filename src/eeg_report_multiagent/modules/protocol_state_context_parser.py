@@ -57,9 +57,6 @@ class ProtocolStateContextParser:
                 assertion=m.status_value.status if m.status_value else None,
                 quantitation=m.quantitation,
                 measurement_ids=[m.measurement_id],
-                provenance=[m.provenance],
-                confidence=m.confidence,
-                source_module="protocol_state_context_parser",
             )
             for m in measurements
         ]

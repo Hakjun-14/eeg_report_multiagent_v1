@@ -187,3 +187,9 @@ Reason: EvidenceItems should represent patient-specific facts and provenance, wh
 
 - Remove authoritative report-surface dependence on EvidenceItem policy fields.
 Reason: Stage 2.98 keeps legacy EvidenceItem policy fields for compatibility, but report synthesis and full-trace numeric audit now rely on SurfaceDecision/AtomicClaimPlan linkage rather than EvidenceItem reportability. Calibrated reportable `cal_*` EvidenceItem copies are no longer created, reducing role confusion between evidence facts and surface judgments.
+
+## Schema slimming compatibility patch
+- `Finding` is now treated as a thin clinical grouping over `MeasurementValue` records.
+- New module-generated findings no longer duplicate measurement provenance, confidence, or source module.
+- `EvidenceItem` policy-like fields remain for artifact compatibility, but are documented as deprecated and non-authoritative.
+- Review/audit paths now prefer linked measurement provenance and `SurfaceDecision`/`AtomicClaimPlan` state over legacy evidence/finding policy fields where feasible.
