@@ -188,8 +188,9 @@ class ReportSynthesizer:
 
         The original EvidenceItem remains untouched. When Stage 3C safely
         upgrades a previously blocked/proxy item into caveated claim support,
-        this method adds a `cal_*` evidence item so final-prose numeric audits
-        can trace the surface text to a reportable, auditable object.
+        the AtomicClaimPlan and SurfaceDecision carry that judgment. We no
+        longer create reportable EvidenceItem copies because EvidenceItems are
+        facts/provenance and SurfaceDecision is the report-surface authority.
         """
         calibration = decision.debug_payload.get("stage3c_calibration") if decision.debug_payload else None
         if not calibration or not calibration.get("safe_surface_override"):
@@ -198,35 +199,10 @@ class ReportSynthesizer:
             return []
 
         out: List[str] = []
-        existing_ids = {item.evidence_id for item in shared_board.evidence_items}
         for item in evidence_items:
             if item.evidence_type in {EvidenceType.DEBUG, EvidenceType.LLM_ASSISTED}:
                 continue
-            if item.reportability in {ClaimSurfaceAction.ALLOW, ClaimSurfaceAction.CAVEAT}:
-                out.append(item.evidence_id)
-                continue
-            calibrated_id = f"cal_{item.evidence_id}_{finding.finding_id}"
-            if calibrated_id not in existing_ids:
-                shared_board.add_evidence(
-                    item.model_copy(
-                        update={
-                            "evidence_id": calibrated_id,
-                            "reportability": decision.surface_action,
-                            "allowed_sections": list(decision.allowed_sections),
-                            "forbidden_sections": list(decision.forbidden_sections),
-                            "rationale": f"Stage 3C calibrated copy: {decision.rationale}",
-                            "caveat": "Calibrated evidence copy; original EvidenceItem remains unchanged.",
-                            "debug_payload": {
-                                **item.debug_payload,
-                                "original_evidence_id": item.evidence_id,
-                                "stage3c_calibration": calibration,
-                            },
-                            "created_by": "reportability_calibrator",
-                        }
-                    )
-                )
-                existing_ids.add(calibrated_id)
-            out.append(calibrated_id)
+            out.append(item.evidence_id)
         return out
 
     def synthesize_celm_sections(self, board: EvidenceBoard, target_section_names: List[str]) -> dict[str, str]:

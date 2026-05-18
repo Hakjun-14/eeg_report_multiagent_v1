@@ -18,3 +18,10 @@
 - `AtomicClaimPlan.surface_action` remains as a legacy mirror so older audits and tests continue to work.
 - Report synthesis now routes section text through linked SurfaceDecision actions in `{allow, caveat}` plus deterministic safe fallbacks.
 - Hard deny checks remain deterministic and cannot be bypassed by future LLM surface review.
+
+## Stage 2.98 Dependency Removal Notes
+- Report synthesis no longer creates `cal_*` reportable EvidenceItem copies for calibrated claims.
+- Calibrated surface permission is represented by `AtomicClaimPlan.evidence_ids` plus `SurfaceDecision.surface_action`, not by mutating or cloning EvidenceItems into reportable objects.
+- `SurfacePolicy` no longer uses `EvidenceItem.reportability` as an evidence-gate input; it uses evidence type, clinical target, and deterministic hard-deny rules.
+- `FinalProseAuditor` treats numeric support as valid when the numeric EvidenceItem is linked to an allow/caveat AtomicClaimPlan; legacy EvidenceItem reportability is only a fallback when no claim-plan trace is supplied.
+- Remaining `EvidenceItem.reportability` reads are compatibility diagnostics in `SharedEvidenceBoard` and evidence-flow audit outputs, not authoritative report-surface routing.

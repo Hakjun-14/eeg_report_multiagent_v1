@@ -81,6 +81,13 @@ class FinalProseAuditor:
     ) -> FinalProseAuditResult:
         sections = self._normalize_report_sections(report_sections)
         plans = list(atomic_claim_plans)
+        surface_evidence_ids = {
+            evidence_id
+            for plan in plans
+            if plan.surface_action in {ClaimSurfaceAction.ALLOW, ClaimSurfaceAction.CAVEAT}
+            and not self.surface_policy.contains_forbidden_surface_text(plan.proposed_text)
+            for evidence_id in plan.evidence_ids
+        }
         all_numeric: List[NumericMention] = []
         supported: List[NumericProvenanceMatch] = []
         unsupported: List[NumericProvenanceMatch] = []
@@ -96,7 +103,7 @@ class FinalProseAuditor:
             numeric_mentions = self.extract_numeric_mentions(section.text, section.name)
             all_numeric.extend(numeric_mentions)
             for mention in numeric_mentions:
-                match = self.match_numeric_to_evidence(mention, evidence_items)
+                match = self.match_numeric_to_evidence(mention, evidence_items, surface_evidence_ids=surface_evidence_ids or None)
                 if match.match_status in {NumericMatchStatus.EXACT, NumericMatchStatus.RANGE_CONTAINED}:
                     supported.append(match)
                 else:
@@ -104,7 +111,14 @@ class FinalProseAuditor:
             debug_leaks.extend(self.detect_banned_debug_terms(section.text, section.name))
             leaks = self.detect_section_leakage(section.name, section.text)
             section_leaks.extend(leaks)
-            seizure_gate_violations.extend(self._detect_seizure_gate_violations(section.name, section.text, evidence_items))
+            seizure_gate_violations.extend(
+                self._detect_seizure_gate_violations(
+                    section.name,
+                    section.text,
+                    evidence_items,
+                    surface_evidence_ids=surface_evidence_ids or None,
+                )
+            )
             matches = self.match_text_claims_to_atomic_plans(section.name, section.text, plans)
             all_claim_matches.extend(matches)
             unmatched_claims.extend([m for m in matches if m.match_status in {"unmatched_surface_claim", "surface_policy_violation"}])
@@ -241,7 +255,13 @@ class FinalProseAuditor:
                     leaks.append(self._section_leak(section_name, sentence, "impression_seizure_claim", "Impression contains seizure language requiring seizure-specific evidence."))
         return leaks
 
-    def match_numeric_to_evidence(self, numeric_mention: NumericMention, evidence_items: Iterable[EvidenceItem]) -> NumericProvenanceMatch:
+    def match_numeric_to_evidence(
+        self,
+        numeric_mention: NumericMention,
+        evidence_items: Iterable[EvidenceItem],
+        *,
+        surface_evidence_ids: set[str] | None = None,
+    ) -> NumericProvenanceMatch:
         section_role = self.router.role_for_section(numeric_mention.section_name).value if numeric_mention.section_name else ""
         unit_matches_wrong_status: list[tuple[EvidenceItem, NumericMatchStatus, str]] = []
         not_reportable_match: NumericProvenanceMatch | None = None
@@ -253,15 +273,16 @@ class FinalProseAuditor:
             if numeric_mention.unit and item.unit and self._normalize_unit(item.unit) != numeric_mention.unit:
                 unit_matches_wrong_status.append((item, NumericMatchStatus.UNIT_MISMATCH, f"Evidence {item.evidence_id} matched value but unit differs."))
                 continue
-            if item.reportability not in {ClaimSurfaceAction.ALLOW, ClaimSurfaceAction.CAVEAT} or item.evidence_type == EvidenceType.DEBUG:
+            is_surface_linked = item.evidence_id in surface_evidence_ids if surface_evidence_ids is not None else item.reportability in {ClaimSurfaceAction.ALLOW, ClaimSurfaceAction.CAVEAT}
+            if not is_surface_linked or item.evidence_type == EvidenceType.DEBUG:
                 not_reportable_match = not_reportable_match or NumericProvenanceMatch(
                     numeric_mention=numeric_mention,
                     matched_evidence_id=item.evidence_id,
                     match_status=NumericMatchStatus.MATCHED_BUT_NOT_REPORTABLE,
-                    rationale=f"Numeric mention matches evidence {item.evidence_id}, but evidence is {item.reportability.value}/{item.evidence_type.value}.",
+                    rationale=f"Numeric mention matches evidence {item.evidence_id}, but it is not linked to an allow/caveat surface claim or is {item.evidence_type.value}.",
                 )
                 continue
-            if item.allowed_sections and section_role and section_role not in item.allowed_sections:
+            if surface_evidence_ids is None and item.allowed_sections and section_role and section_role not in item.allowed_sections:
                 wrong_section_match = wrong_section_match or NumericProvenanceMatch(
                     numeric_mention=numeric_mention,
                     matched_evidence_id=item.evidence_id,
@@ -354,10 +375,21 @@ class FinalProseAuditor:
             )
         return matches
 
-    def _detect_seizure_gate_violations(self, section_name: str, section_text: str, evidence_items: Iterable[EvidenceItem]) -> List[SectionLeakage]:
+    def _detect_seizure_gate_violations(
+        self,
+        section_name: str,
+        section_text: str,
+        evidence_items: Iterable[EvidenceItem],
+        *,
+        surface_evidence_ids: set[str] | None = None,
+    ) -> List[SectionLeakage]:
         has_seizure_evidence = any(
             item.clinical_target == ClinicalTarget.SEIZURE_EVIDENCE
-            and item.reportability in {ClaimSurfaceAction.ALLOW, ClaimSurfaceAction.CAVEAT}
+            and (
+                item.evidence_id in surface_evidence_ids
+                if surface_evidence_ids is not None
+                else item.reportability in {ClaimSurfaceAction.ALLOW, ClaimSurfaceAction.CAVEAT}
+            )
             and item.evidence_type in {EvidenceType.DIRECT, EvidenceType.METADATA, EvidenceType.DERIVED}
             for item in evidence_items
         )

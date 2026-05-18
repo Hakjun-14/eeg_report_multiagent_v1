@@ -30,7 +30,7 @@ def test_atomic_claim_plan_blocks_debug_only_proxy_scores() -> None:
     assert "debug" in (plans[0].rationale or "").lower()
 
 
-def test_atomic_claim_plan_keeps_peak_localization_debug_only_by_default() -> None:
+def test_atomic_claim_plan_blocks_peak_localization_proxy_by_default() -> None:
     prov = ProvenanceRecord(source_type=SourceType.SIGNAL, source_ref="s")
     measurement = MeasurementValue(
         measurement_id="m_loc",
@@ -49,7 +49,7 @@ def test_atomic_claim_plan_keeps_peak_localization_debug_only_by_default() -> No
 
     plans = ReportSynthesizer().build_atomic_claim_plan(board)
 
-    assert plans[0].surface_action == ClaimSurfaceAction.DEBUG_ONLY
+    assert plans[0].surface_action == ClaimSurfaceAction.BLOCK
     assert "definitive_epileptiform_morphology" in plans[0].missing_evidence
 
 

@@ -444,8 +444,6 @@ class GTRequiredSuppressionAuditor:
             return "atomic_claim_blocked"
         if ClaimSurfaceAction.DEBUG_ONLY in actions:
             return "surface_policy_rejected"
-        if all(item.reportability not in {ClaimSurfaceAction.ALLOW, ClaimSurfaceAction.CAVEAT} for item in evidence_items):
-            return "reportability_blocked"
         return "final_prose_missing"
 
     def _category_from_stage(self, suppression_stage: str, gt_claim: GTAtomicClaim, evidence_items: Sequence[EvidenceItem]) -> str:
@@ -506,12 +504,11 @@ class GTRequiredSuppressionAuditor:
         if match_stage == "evidence_item":
             return "matching EvidenceItem did not produce an AtomicClaimPlan"
         actions = Counter(str(getattr(c.surface_action, "value", c.surface_action)) for c in atomic_claims)
-        reportability = Counter(str(getattr(e.reportability, "value", e.reportability)) for e in evidence_items)
         if any(_appropriately_blocked(claim, e) for e in evidence_items):
             if not all(_appropriately_blocked(claim, e) for e in evidence_items):
-                return f"AtomicClaimPlan exists but did not surface; actions={dict(actions)}, reportability={dict(reportability)}"
+                return f"AtomicClaimPlan exists but did not surface; actions={dict(actions)}, evidence_types={dict(Counter(str(getattr(e.evidence_type, 'value', e.evidence_type)) for e in evidence_items))}"
             return "upstream evidence exists but is unsafe or insufficient for this GT claim"
-        return f"AtomicClaimPlan exists but did not surface; actions={dict(actions)}, reportability={dict(reportability)}"
+        return f"AtomicClaimPlan exists but did not surface; actions={dict(actions)}"
 
     def _rationale(
         self,
@@ -526,7 +523,7 @@ class GTRequiredSuppressionAuditor:
             return "GT claim appears in final prose."
         pieces = [f"match_stage={match_stage}", f"salvageability={salvageability}"]
         if evidence_items:
-            pieces.append("evidence=" + ",".join(f"{e.evidence_id}:{getattr(e.reportability, 'value', e.reportability)}/{getattr(e.evidence_type, 'value', e.evidence_type)}" for e in evidence_items[:5]))
+            pieces.append("evidence=" + ",".join(f"{e.evidence_id}:{getattr(e.evidence_type, 'value', e.evidence_type)}" for e in evidence_items[:5]))
         if atomic_claims:
             pieces.append("plans=" + ",".join(f"{c.plan_id}:{getattr(c.surface_action, 'value', c.surface_action)}" for c in atomic_claims[:5]))
         if _claim_is_seizure_absent(claim):

@@ -184,7 +184,7 @@ def test_surface_policy_blocks_debug_proxy_evidence_items_and_seizure_event_cand
     finding = _finding("f_burden", "epileptiform_event_candidate_burden", burden)
     decision = SurfacePolicy().decide(finding, measurement=burden, evidence_items=[item])
 
-    assert decision.surface_action == ClaimSurfaceAction.DEBUG_ONLY
+    assert decision.surface_action == ClaimSurfaceAction.BLOCK
     assert "ev_candidate" in decision.evidence_ids
 
     sections = ReportSynthesizer().synthesize_celm_sections(

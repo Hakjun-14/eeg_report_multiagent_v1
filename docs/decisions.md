@@ -184,3 +184,6 @@ Reason: comparing OURS with provenance audits while leaving CELM only on BLEU/RO
 ## 2026-05-19
 - Introduce `SurfaceDecision` as the authoritative report-surface judgment artifact while keeping EvidenceItem policy fields for compatibility.
 Reason: EvidenceItems should represent patient-specific facts and provenance, while report-surface allow/caveat/block/debug_only is a separate judgment. This patch preserves old fields and `AtomicClaimPlan.surface_action` as compatibility mirrors, but persists `surface_decisions.json` and routes deterministic/LLM report synthesis through SurfaceDecision-gated claims.
+
+- Remove authoritative report-surface dependence on EvidenceItem policy fields.
+Reason: Stage 2.98 keeps legacy EvidenceItem policy fields for compatibility, but report synthesis and full-trace numeric audit now rely on SurfaceDecision/AtomicClaimPlan linkage rather than EvidenceItem reportability. Calibrated reportable `cal_*` EvidenceItem copies are no longer created, reducing role confusion between evidence facts and surface judgments.

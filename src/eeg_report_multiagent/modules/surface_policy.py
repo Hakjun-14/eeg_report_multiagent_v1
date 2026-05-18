@@ -128,8 +128,8 @@ class SurfacePolicy:
                 evidence_ids=evidence_ids,
                 debug_payload={"evidence_ids": evidence_ids},
             )
-        reportabilities = {item.reportability for item in evidence_items}
-        if reportabilities and reportabilities.issubset({ClaimSurfaceAction.DEBUG_ONLY}):
+        evidence_types = {item.evidence_type for item in evidence_items}
+        if evidence_types and evidence_types.issubset({EvidenceType.DEBUG}):
             return self._decision(
                 ClaimSurfaceAction.DEBUG_ONLY,
                 "debug_only_evidence_item",
@@ -137,21 +137,21 @@ class SurfacePolicy:
                 evidence_ids=evidence_ids,
                 debug_payload={"evidence_ids": evidence_ids},
             )
-        if reportabilities and reportabilities.issubset({ClaimSurfaceAction.BLOCK, ClaimSurfaceAction.DEBUG_ONLY}):
+        if evidence_types and evidence_types.issubset({EvidenceType.PROXY, EvidenceType.DEBUG, EvidenceType.LLM_ASSISTED}):
             return self._decision(
                 ClaimSurfaceAction.BLOCK,
-                "blocked_evidence_item",
-                "Linked evidence items are blocked or debug-only.",
+                "proxy_or_debug_evidence_item",
+                "Proxy/debug/LLM-assisted evidence items cannot directly surface without calibrated claim gating.",
                 evidence_ids=evidence_ids,
                 debug_payload={"evidence_ids": evidence_ids},
             )
         if any(item.clinical_target == ClinicalTarget.SEIZURE_EVIDENCE for item in evidence_items):
             seizure_items = [item for item in evidence_items if item.clinical_target == ClinicalTarget.SEIZURE_EVIDENCE]
-            if not any(item.reportability in {ClaimSurfaceAction.ALLOW, ClaimSurfaceAction.CAVEAT} for item in seizure_items):
+            if not any(item.evidence_type in {EvidenceType.DIRECT, EvidenceType.METADATA, EvidenceType.DERIVED} for item in seizure_items):
                 return self._decision(
                     ClaimSurfaceAction.BLOCK,
-                    "no_reportable_seizure_evidence",
-                    "A seizure claim requires reportable seizure-specific evidence.",
+                    "no_direct_seizure_evidence",
+                    "A seizure claim requires direct, derived, or metadata seizure-specific evidence.",
                     evidence_ids=evidence_ids,
                     debug_payload={"evidence_ids": evidence_ids},
                 )
