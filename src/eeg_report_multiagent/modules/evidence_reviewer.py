@@ -129,13 +129,11 @@ class EvidenceReviewModule:
             has_time = any(p.time.window_indices or p.time.start_sec is not None or p.time.end_sec is not None for p in provenance)
             has_space = any(p.space.channels or p.space.region or p.space.laterality for p in provenance)
             has_measurement_provenance = any(p.measurement is not None for p in provenance)
-            confidence = next((m.confidence for m in linked_measurements if m.confidence is not None), finding.confidence)
             findings.append(
                 {
                     "finding_id": finding.finding_id,
                     "finding_type": finding.finding_type,
                     "assertion": finding.assertion.value,
-                    "confidence": confidence,
                     "quantitation": {
                         "kind": q.kind.value,
                         "unit": q.unit,
@@ -165,7 +163,6 @@ class EvidenceReviewModule:
                 {
                     "measurement_id": m.measurement_id,
                     "measurement_name": m.measurement_name,
-                    "confidence": m.confidence,
                     "payload_type": self._measurement_payload_type(m),
                     "quantitation": {
                         "kind": q.kind.value,

@@ -193,3 +193,9 @@ Reason: Stage 2.98 keeps legacy EvidenceItem policy fields for compatibility, bu
 - New module-generated findings no longer duplicate measurement provenance, confidence, or source module.
 - `EvidenceItem` policy-like fields remain for artifact compatibility, but are documented as deprecated and non-authoritative.
 - Review/audit paths now prefer linked measurement provenance and `SurfaceDecision`/`AtomicClaimPlan` state over legacy evidence/finding policy fields where feasible.
+
+## Remove deterministic measurement confidence from runtime schema
+- `MeasurementValue` no longer has a standalone `confidence` field because measurements are deterministic bounded-tool outputs.
+- New `Finding` and `EvidenceItem` runtime artifacts no longer copy measurement confidence/reliability.
+- Evidence selection should use typed values, provenance, and `SurfaceDecision`, not score-like confidence fields on measurements.
+- `SharedEvidenceBoard.query_for_surface_decisions()` was added as the SurfaceDecision-based replacement path for report-surface evidence lookup.

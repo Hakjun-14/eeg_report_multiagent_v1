@@ -60,7 +60,6 @@ class LLMFindingProposalModule:
                 {
                     "measurement_id": measurement.measurement_id,
                     "measurement_name": measurement.measurement_name,
-                    "confidence": measurement.confidence,
                     "quantitation": {
                         "kind": q.kind.value,
                         "unit": q.unit,

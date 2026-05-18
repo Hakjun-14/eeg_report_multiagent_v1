@@ -31,3 +31,9 @@
 - Legacy `Finding.provenance`, `Finding.confidence`, and `Finding.source_module` remain loadable but are no longer populated by background/event/protocol modules.
 - `EvidenceItem` remains the patient-specific evidence pool; policy fields are compatibility metadata, not authoritative report-surface decisions.
 - Report-surface judgment remains `AtomicClaimPlan -> SurfaceDecision -> SurfacePolicy -> Report`.
+
+## Stage 3.0 Confidence and Surface Query Cleanup
+- `MeasurementValue.confidence` was removed from the runtime schema.
+- Tool helper functions may still accept a legacy `confidence` argument for call-site compatibility, but it is not stored on `MeasurementValue`.
+- Newly generated `EvidenceItem` records no longer populate compatibility `confidence` or `reliability` values.
+- `SharedEvidenceBoard.query_for_surface_decisions()` now provides the preferred SurfaceDecision-based evidence subset lookup.

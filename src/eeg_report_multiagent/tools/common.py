@@ -37,7 +37,6 @@ def make_provenance(
         space=SpaceProvenance(channels=list(channels or []), region=region, laterality=laterality),
         measurement=MeasurementProvenance(tool_name=tool_name, function_name=function_name),
         reason=reason,
-        confidence=confidence,
     )
 
 
@@ -54,7 +53,6 @@ def make_exact_measurement(
         measurement_name=measurement_name,
         quantitation=QuantitationValue(kind=QuantitationKind.EXACT, exact=float(value), unit=unit),
         provenance=provenance,
-        confidence=confidence,
     )
 
 
@@ -72,7 +70,6 @@ def make_range_measurement(
         measurement_name=measurement_name,
         quantitation=QuantitationValue(kind=QuantitationKind.RANGE, lower=float(lower), upper=float(upper), unit=unit),
         provenance=provenance,
-        confidence=confidence,
     )
 
 
@@ -89,7 +86,6 @@ def make_upper_bound_measurement(
         measurement_name=measurement_name,
         quantitation=QuantitationValue(kind=QuantitationKind.UPPER_BOUND, upper=float(upper), unit=unit),
         provenance=provenance,
-        confidence=confidence,
     )
 
 
@@ -106,7 +102,6 @@ def make_distribution_measurement(
         measurement_name=measurement_name,
         quantitation=QuantitationValue(kind=QuantitationKind.DISTRIBUTION, values=[float(x) for x in values], unit=unit),
         provenance=provenance,
-        confidence=confidence,
     )
 
 
@@ -123,7 +118,6 @@ def make_status_measurement(
         measurement_name=measurement_name,
         status_value=StatusValue(status=status, reason=reason),
         provenance=provenance,
-        confidence=confidence,
     )
 
 
@@ -139,5 +133,4 @@ def make_categorical_measurement(
         measurement_name=measurement_name,
         categorical_value=value,
         provenance=provenance,
-        confidence=confidence,
     )

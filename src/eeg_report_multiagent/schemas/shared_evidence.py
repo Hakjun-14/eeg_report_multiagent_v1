@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
-from .report import ClaimSurfaceAction
+from .report import ClaimSurfaceAction, SurfaceDecision
 
 
 class EvidenceType(str, Enum):
@@ -117,6 +117,12 @@ class SharedEvidenceBoard(BaseModel):
         ]
 
     def query_reportable(self, section_name: str) -> List[EvidenceItem]:
+        """Deprecated legacy helper.
+
+        Prefer `query_for_surface_decisions()`, which uses authoritative
+        SurfaceDecision objects rather than EvidenceItem compatibility policy
+        fields.
+        """
         key = section_name.strip().lower()
         out: List[EvidenceItem] = []
         for item in self.evidence_items:
@@ -131,11 +137,36 @@ class SharedEvidenceBoard(BaseModel):
         return out
 
     def query_debug_only(self) -> List[EvidenceItem]:
+        """Legacy helper for evidence-board audits, not report synthesis."""
         return [
             item
             for item in self.evidence_items
             if item.reportability == ClaimSurfaceAction.DEBUG_ONLY or item.evidence_type == EvidenceType.DEBUG
         ]
+
+    def query_for_surface_decisions(
+        self,
+        decisions: List[SurfaceDecision],
+        section_name: str | None = None,
+        actions: set[ClaimSurfaceAction] | None = None,
+    ) -> List[EvidenceItem]:
+        """Return evidence linked to authoritative surface decisions."""
+
+        allowed_actions = actions or {ClaimSurfaceAction.ALLOW, ClaimSurfaceAction.CAVEAT}
+        section_key = section_name.strip().lower() if section_name else None
+        evidence_ids: set[str] = set()
+        for decision in decisions:
+            if decision.surface_action not in allowed_actions:
+                continue
+            if section_key:
+                forbidden = {section.strip().lower() for section in decision.forbidden_sections}
+                allowed = {section.strip().lower() for section in decision.allowed_sections}
+                if section_key in forbidden:
+                    continue
+                if allowed and section_key not in allowed:
+                    continue
+            evidence_ids.update(decision.evidence_ids)
+        return [item for item in self.evidence_items if item.evidence_id in evidence_ids]
 
     def link_to_claim(self, claim_id: str, evidence_ids: List[str]) -> None:
         missing = [evidence_id for evidence_id in evidence_ids if not any(item.evidence_id == evidence_id for item in self.evidence_items)]

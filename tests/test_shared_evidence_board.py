@@ -9,7 +9,7 @@ from eeg_report_multiagent.modules.surface_policy import SurfacePolicy
 from eeg_report_multiagent.schemas import EvidenceBoard, Finding, MeasurementValue, QuantitationValue
 from eeg_report_multiagent.schemas.measurement import QuantitationKind, StatusSemantic
 from eeg_report_multiagent.schemas.provenance import MeasurementProvenance, ProvenanceRecord, SourceType, SpaceProvenance, TimeProvenance
-from eeg_report_multiagent.schemas.report import ClaimSurfaceAction
+from eeg_report_multiagent.schemas.report import ClaimSurfaceAction, SurfaceDecision
 from eeg_report_multiagent.schemas.section_contract import SectionRole
 from eeg_report_multiagent.schemas.shared_evidence import ClinicalTarget, EvidenceItem, EvidenceType, SharedEvidenceBoard
 
@@ -149,6 +149,18 @@ def test_shared_evidence_board_queries_and_snapshot() -> None:
     assert board.query_by_section("detail") == [item_reportable]
     assert board.query_reportable("detail") == [item_reportable]
     assert board.query_debug_only() == [item_debug]
+    assert board.query_for_surface_decisions(
+        [
+            SurfaceDecision(
+                claim_id="p_status",
+                surface_action=ClaimSurfaceAction.CAVEAT,
+                allowed_sections=[SectionRole.DETAIL.value],
+                rationale="SurfaceDecision is authoritative for report synthesis.",
+                evidence_ids=["ev_debug"],
+            )
+        ],
+        "detail",
+    ) == [item_debug]
     snap = board.snapshot()
     assert snap.summary_by_type["proxy"] == 1
     assert snap.reportable_items == ["ev_reportable"]

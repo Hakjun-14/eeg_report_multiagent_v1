@@ -54,6 +54,14 @@ class StatusValue(BaseModel):
 
 
 class MeasurementValue(BaseModel):
+    """Deterministic tool output.
+
+    Measurements are produced by bounded functions, not by LLM judgment, so
+    they intentionally do not carry a standalone confidence score. If a tool
+    needs to expose quality metadata, store it in typed payload/provenance or
+    debug-only evidence, not as report-surface confidence.
+    """
+
     measurement_id: str
     measurement_name: str
     quantitation: Optional[QuantitationValue] = None
@@ -61,7 +69,6 @@ class MeasurementValue(BaseModel):
     categorical_value: Optional[str] = None
     boolean_value: Optional[bool] = None
     provenance: ProvenanceRecord
-    confidence: Optional[float] = None
     metadata: Dict[str, str] = Field(default_factory=dict)
 
     @model_validator(mode="after")

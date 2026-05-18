@@ -23,6 +23,6 @@ class Finding(BaseModel):
     summary_label: Optional[str] = None
     measurement_ids: List[str] = Field(default_factory=list)
     provenance: List[ProvenanceRecord] = Field(default_factory=list, description="Deprecated compatibility; use linked MeasurementValue.provenance.")
-    confidence: Optional[float] = Field(default=None, description="Deprecated compatibility; use linked MeasurementValue.confidence or SurfaceDecision confidence.")
+    confidence: Optional[float] = Field(default=None, description="Deprecated compatibility; deterministic tool findings should not carry confidence.")
     source_module: Optional[str] = Field(default=None, description="Deprecated compatibility; infer source from linked MeasurementValue provenance/tool.")
     tags: List[str] = Field(default_factory=list)
