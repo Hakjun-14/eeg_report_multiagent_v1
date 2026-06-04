@@ -1,7 +1,7 @@
 from eeg_report_multiagent.modules.evidence_reviewer import EvidenceReviewModule
 from eeg_report_multiagent.modules.report_synthesizer import ReportSynthesizer
-from eeg_report_multiagent.schemas import EvidenceBoard, Finding, MeasurementValue, QuantitationValue
-from eeg_report_multiagent.schemas.measurement import QuantitationKind, StatusSemantic
+from eeg_report_multiagent.schemas import EvidenceBoard, MeasurementValue, QuantitationValue
+from eeg_report_multiagent.schemas.measurement import QuantitationKind
 from eeg_report_multiagent.schemas.provenance import (
     MeasurementProvenance,
     ProvenanceRecord,
@@ -25,12 +25,11 @@ class FakeAdapter:
                 {
                     "weakness_id": "llm_weak_event_morphology",
                     "severity": "high",
-                    "target_type": "finding",
-                    "target_id": "f_event",
+                    "target_type": "measurement",
+                    "target_id": "m_event",
                     "reason": "No morphology descriptor is present.",
                     "linked_measurement_ids": ["m_event"],
-                    "linked_finding_ids": ["f_event"],
-                    "recommendation": "Keep event finding as a candidate.",
+                    "recommendation": "Keep event evidence as a candidate.",
                 }
             ],
             "missing_slots": [],
@@ -39,7 +38,7 @@ class FakeAdapter:
                     "item_id": "llm_do_not_claim_seizure",
                     "text": "Do not claim seizure from event candidate burden.",
                     "rationale": "No seizure evolution evidence is present.",
-                    "linked_finding_ids": ["f_event"],
+                    "linked_measurement_ids": ["m_event"],
                 }
             ],
             "claim_constraints": [],
@@ -51,7 +50,7 @@ class FakeAdapter:
                     "rationale": "Should be rejected.",
                     "expected_measurement": "invalid",
                     "linked_gap_ids": [],
-                    "linked_finding_ids": ["f_event"],
+                    "linked_measurement_ids": ["m_event"],
                 }
             ],
         }
@@ -69,18 +68,9 @@ def _signal_prov(tool_name: str) -> ProvenanceRecord:
 def _board() -> EvidenceBoard:
     m_freq = MeasurementValue(
         measurement_id="m_freq",
-        measurement_name="background_dominant_frequency_hz",
-        quantitation=QuantitationValue(kind=QuantitationKind.EXACT, exact=0.5, unit="Hz"),
+        measurement_name="relative_bandpower_delta",
+        quantitation=QuantitationValue(kind=QuantitationKind.EXACT, exact=0.5, unit="ratio"),
         provenance=_signal_prov("psd_summary"),
-    )
-    f_freq = Finding(
-        finding_id="f_freq",
-        finding_type="background_frequency",
-        assertion=StatusSemantic.PRESENT,
-        quantitation=m_freq.quantitation,
-        measurement_ids=["m_freq"],
-        provenance=[m_freq.provenance],
-        source_module="background_module",
     )
     m_event = MeasurementValue(
         measurement_id="m_event",
@@ -88,16 +78,7 @@ def _board() -> EvidenceBoard:
         quantitation=QuantitationValue(kind=QuantitationKind.EXACT, exact=0.2, unit="ratio"),
         provenance=_signal_prov("transient_candidate_score"),
     )
-    f_event = Finding(
-        finding_id="f_event",
-        finding_type="epileptiform_event_candidate_burden",
-        assertion=StatusSemantic.PRESENT,
-        quantitation=m_event.quantitation,
-        measurement_ids=["m_event"],
-        provenance=[m_event.provenance],
-        source_module="event_module",
-    )
-    return EvidenceBoard(session_id="s", measurements=[m_freq, m_event], findings=[f_freq, f_event])
+    return EvidenceBoard(session_id="s", measurements=[m_freq, m_event])
 
 
 def test_evidence_review_v2_uses_structured_payload_and_rejects_unregistered_tools() -> None:

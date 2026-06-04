@@ -1,6 +1,6 @@
 from eeg_report_multiagent.modules.llm_report_synthesizer import EvidenceBoardLLMReportSynthesizer
-from eeg_report_multiagent.schemas import EvidenceBoard, Finding, MeasurementValue, QuantitationValue
-from eeg_report_multiagent.schemas.measurement import QuantitationKind, StatusSemantic
+from eeg_report_multiagent.schemas import EvidenceBoard, MeasurementValue, QuantitationValue
+from eeg_report_multiagent.schemas.measurement import QuantitationKind
 from eeg_report_multiagent.schemas.provenance import (
     MeasurementProvenance,
     ProvenanceRecord,
@@ -21,14 +21,14 @@ class FakeReportAdapter:
             "report_sections": [
                 {
                     "section_name": "EEG DESCRIPTION/DETAILS",
-                    "section_text": "Structured evidence suggests background slowing; this remains an assistive finding pending EEG review.",
-                    "supporting_finding_ids": ["f_slow"],
+                    "section_text": "Structured evidence suggests background slowing; this remains an assistive observation pending EEG review.",
+                    "supporting_evidence_ids": ["evgrp_background_slowing"],
                     "evidence_limitations": ["surface-policy-gated evidence only"],
                 },
                 {
                     "section_name": "IMPRESSION/INTERPRETATION",
-                    "section_text": "Structured evidence suggests background slowing; this remains an assistive finding pending EEG review.",
-                    "supporting_finding_ids": ["f_slow"],
+                    "section_text": "Structured evidence suggests background slowing; this remains an assistive observation pending EEG review.",
+                    "supporting_evidence_ids": ["evgrp_background_slowing"],
                     "evidence_limitations": ["neurologist review required"],
                 },
             ],
@@ -48,20 +48,11 @@ def _board() -> EvidenceBoard:
     )
     measurement = MeasurementValue(
         measurement_id="m_slow",
-        measurement_name="background_slowing_index",
+        measurement_name="slowing_score",
         quantitation=QuantitationValue(kind=QuantitationKind.EXACT, exact=0.8, unit="ratio"),
         provenance=prov,
     )
-    finding = Finding(
-        finding_id="f_slow",
-        finding_type="background_slowing",
-        assertion=StatusSemantic.PRESENT,
-        quantitation=measurement.quantitation,
-        measurement_ids=["m_slow"],
-        provenance=[prov],
-        source_module="background_module",
-    )
-    return EvidenceBoard(session_id="s", measurements=[measurement], findings=[finding])
+    return EvidenceBoard(session_id="s", measurements=[measurement])
 
 
 def test_d_synthesizer_uses_evidence_board_only_payload() -> None:
@@ -76,7 +67,6 @@ def test_d_synthesizer_uses_evidence_board_only_payload() -> None:
     assert result.trace["gt_report_used"] is False
     assert "atomic_claim_plans" in adapter.payload
     assert adapter.payload["atomic_claim_plans"][0]["claim_type"] == "background_slowing"
-    assert "findings" not in adapter.payload
     assert "measurements" not in adapter.payload
     assert "values_preview" not in str(adapter.payload)
     assert "support score" not in str(adapter.payload).lower()
@@ -85,7 +75,7 @@ def test_d_synthesizer_uses_evidence_board_only_payload() -> None:
         "contains_gt_report_text": False,
         "contains_source_pkl_paths": False,
         "contains_full_measurements": False,
-        "contains_full_findings": False,
+        "contains_full_evidence_items": False,
         "contains_debug_scores": False,
     }
     assert "reference_gt_report_text" in adapter.payload["forbidden_inputs"]

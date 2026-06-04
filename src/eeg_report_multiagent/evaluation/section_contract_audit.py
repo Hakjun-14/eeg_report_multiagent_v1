@@ -15,7 +15,11 @@ def audit_section_contract(
     """Audit section coverage without using GT section text."""
 
     router = SectionRouter()
-    finding_types = {finding.finding_type for finding in board.findings}
+    shared_board = board.ensure_shared_evidence_board()
+    evidence_targets = {
+        str(getattr(item.clinical_target, "value", item.clinical_target))
+        for item in shared_board.evidence_items
+    }
     generated_sections = {}
     for section in generated_report.get("report_sections") or []:
         name = str(section.get("section_name") or "").strip()
@@ -24,7 +28,7 @@ def audit_section_contract(
     section_rows: List[Dict[str, Any]] = []
     for section in contract.target_sections:
         generated_text = generated_sections.get(section.standardized_name.upper(), "")
-        required_coverage = router.covered_slots(finding_types, section.required_slots)
+        required_coverage = router.covered_slots(evidence_targets, section.required_slots)
         missing_required = [
             req.slot_name
             for req in section.required_slots

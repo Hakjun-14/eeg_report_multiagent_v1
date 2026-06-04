@@ -119,7 +119,6 @@ def _claim_row(audit: GTSuppressionAuditResult, claim_id: str) -> Dict[str, Any]
         "category": match.category,
         "salvageability": match.salvageability,
         "matched_measurement_ids": "|".join(match.matched_measurement_ids),
-        "matched_finding_ids": "|".join(match.matched_finding_ids),
         "matched_evidence_ids": "|".join(match.matched_evidence_ids),
         "matched_atomic_claim_ids": "|".join(match.matched_atomic_claim_ids),
         "surfaced_sentence": match.surfaced_sentence or "",

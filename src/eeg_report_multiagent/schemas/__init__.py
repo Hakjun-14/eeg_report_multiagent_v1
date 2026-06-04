@@ -3,15 +3,13 @@ from .agent import (
     ClaimConstraintRecord,
     DoNotClaimRecord,
     EvidenceGap,
-    FindingProposalRecord,
     MissingSlotRecord,
     RejectedToolRequestProposal,
     ToolRequestProposal,
     WeakEvidenceRecord,
 )
-from .evidence import EvidenceBoard
+from .evidence import EvidenceBoard, RuntimeEvidenceBundle
 from .evidence_flow import EvidenceFlowAggregate, EvidenceFlowAuditResult, SlotFlowRecord
-from .finding import Finding
 from .final_prose_audit import (
     ClaimSurfaceMatch,
     DebugLeak,
@@ -32,7 +30,6 @@ __all__ = [
     "StatusValue",
     "QuantitationValue",
     "ProvenanceRecord",
-    "Finding",
     "NumericMention",
     "DebugLeak",
     "SectionLeakage",
@@ -40,6 +37,7 @@ __all__ = [
     "ClaimSurfaceMatch",
     "FinalProseAuditResult",
     "EvidenceBoard",
+    "RuntimeEvidenceBundle",
     "SlotFlowRecord",
     "EvidenceFlowAuditResult",
     "EvidenceFlowAggregate",
@@ -59,7 +57,6 @@ __all__ = [
     "TargetSectionContract",
     "ToolInvocationRecord",
     "EvidenceGap",
-    "FindingProposalRecord",
     "WeakEvidenceRecord",
     "MissingSlotRecord",
     "DoNotClaimRecord",

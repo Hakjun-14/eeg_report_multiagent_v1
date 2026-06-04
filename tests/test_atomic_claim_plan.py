@@ -1,7 +1,6 @@
 from eeg_report_multiagent.modules.report_synthesizer import ReportSynthesizer
 from eeg_report_multiagent.schemas.evidence import EvidenceBoard
-from eeg_report_multiagent.schemas.finding import Finding
-from eeg_report_multiagent.schemas.measurement import MeasurementValue, QuantitationKind, QuantitationValue, StatusSemantic
+from eeg_report_multiagent.schemas.measurement import MeasurementValue, QuantitationKind, QuantitationValue
 from eeg_report_multiagent.schemas.provenance import ProvenanceRecord, SourceType
 from eeg_report_multiagent.schemas.report import ClaimSurfaceAction
 
@@ -10,19 +9,11 @@ def test_atomic_claim_plan_blocks_debug_only_proxy_scores() -> None:
     prov = ProvenanceRecord(source_type=SourceType.SIGNAL, source_ref="s")
     measurement = MeasurementValue(
         measurement_id="m_debug",
-        measurement_name="event_peak_field_concentration_ratio",
+        measurement_name="event_morphology_support_score",
         quantitation=QuantitationValue(kind=QuantitationKind.EXACT, exact=2.1, unit="ratio"),
         provenance=prov,
     )
-    finding = Finding(
-        finding_id="f_debug",
-        finding_type="event_peak_field_support",
-        assertion=StatusSemantic.PRESENT,
-        measurement_ids=[measurement.measurement_id],
-        quantitation=measurement.quantitation,
-        provenance=[prov],
-    )
-    board = EvidenceBoard(session_id="s", measurements=[measurement], findings=[finding])
+    board = EvidenceBoard(session_id="s", measurements=[measurement])
 
     plans = ReportSynthesizer().build_atomic_claim_plan(board)
 
@@ -38,19 +29,12 @@ def test_atomic_claim_plan_blocks_peak_localization_proxy_by_default() -> None:
         categorical_value="left_temporal",
         provenance=prov,
     )
-    finding = Finding(
-        finding_id="f_loc",
-        finding_type="event_peak_localization",
-        assertion=StatusSemantic.PRESENT,
-        measurement_ids=[measurement.measurement_id],
-        provenance=[prov],
-    )
-    board = EvidenceBoard(session_id="s", measurements=[measurement], findings=[finding])
+    board = EvidenceBoard(session_id="s", measurements=[measurement])
 
     plans = ReportSynthesizer().build_atomic_claim_plan(board)
 
     assert plans[0].surface_action == ClaimSurfaceAction.BLOCK
-    assert "definitive_epileptiform_morphology" in plans[0].missing_evidence
+    assert "validated_clinical_support" in plans[0].missing_evidence
 
 
 def test_section_synthesis_blocks_proxy_localization_even_with_support_scores() -> None:
@@ -84,55 +68,7 @@ def test_section_synthesis_blocks_proxy_localization_even_with_support_scores() 
         exact("m_morph_support", "event_morphology_support_score", 1.5),
         morph_class,
     ]
-    findings = [
-        Finding(
-            finding_id="f_loc",
-            finding_type="event_peak_localization",
-            assertion=StatusSemantic.PRESENT,
-            measurement_ids=["m_loc"],
-            provenance=[prov],
-        ),
-        Finding(
-            finding_id="f_burden",
-            finding_type="epileptiform_event_candidate_burden",
-            assertion=StatusSemantic.PRESENT,
-            measurement_ids=["m_burden"],
-            quantitation=measurements[1].quantitation,
-            provenance=[prov],
-        ),
-        Finding(
-            finding_id="f_peak_field",
-            finding_type="event_peak_field_support",
-            assertion=StatusSemantic.PRESENT,
-            measurement_ids=["m_peak_field"],
-            quantitation=measurements[2].quantitation,
-            provenance=[prov],
-        ),
-        Finding(
-            finding_id="f_likelihood",
-            finding_type="epileptiform_candidate_likelihood",
-            assertion=StatusSemantic.PRESENT,
-            measurement_ids=["m_likelihood"],
-            quantitation=measurements[3].quantitation,
-            provenance=[prov],
-        ),
-        Finding(
-            finding_id="f_morph_support",
-            finding_type="event_morphology_support",
-            assertion=StatusSemantic.PRESENT,
-            measurement_ids=["m_morph_support"],
-            quantitation=measurements[4].quantitation,
-            provenance=[prov],
-        ),
-        Finding(
-            finding_id="f_morph_class",
-            finding_type="event_morphology_class",
-            assertion=StatusSemantic.PRESENT,
-            measurement_ids=["m_morph_class"],
-            provenance=[prov],
-        ),
-    ]
-    board = EvidenceBoard(session_id="s", measurements=measurements, findings=findings)
+    board = EvidenceBoard(session_id="s", measurements=measurements)
 
     sections = ReportSynthesizer().synthesize_celm_sections(
         board,

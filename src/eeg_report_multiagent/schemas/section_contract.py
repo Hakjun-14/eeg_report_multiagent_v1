@@ -19,7 +19,7 @@ class SectionRole(str, Enum):
 
 class SectionSlotRequirement(BaseModel):
     slot_name: str
-    finding_types: List[str] = Field(default_factory=list)
+    evidence_targets: List[str] = Field(default_factory=list)
     required: bool = True
     nullable: bool = False
     reason: str

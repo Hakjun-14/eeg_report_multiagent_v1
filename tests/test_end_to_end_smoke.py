@@ -53,9 +53,6 @@ def test_end_to_end_smoke(tmp_path: Path) -> None:
     assert len(out["background_measurements"]) > 0
     assert len(out["event_measurements"]) > 0
     assert len(out["parser_measurements"]) > 0
-    assert len(out["background_findings"]) == 0
-    assert len(out["event_findings"]) == 0
-    assert len(out["parser_findings"]) == 0
     assert out["evidence_board"].session_id == "sub-test_ses-1"
     assert out["evidence_board"].ensure_shared_evidence_board().evidence_items
     assert out["detail_section"].text

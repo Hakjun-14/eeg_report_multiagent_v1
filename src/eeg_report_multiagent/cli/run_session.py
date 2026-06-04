@@ -31,7 +31,6 @@ CODE_PATH_TRACE = [
             "protocol_parser_node",
             "evidence_merge_node",
             "evidence_review_node",
-            "finding_proposal_node",
             "report_synthesize_node",
             "optional_verify_node",
             "finalize_node",
@@ -84,11 +83,6 @@ CODE_PATH_TRACE = [
         "block": "llm_evidence_review",
         "file": "src/eeg_report_multiagent/modules/evidence_reviewer.py",
         "functions": ["EvidenceReviewModule.run"],
-    },
-    {
-        "block": "llm_finding_proposal",
-        "file": "src/eeg_report_multiagent/modules/llm_finding_proposer.py",
-        "functions": ["LLMFindingProposalModule.run"],
     },
     {
         "block": "llm_adapter",
@@ -168,7 +162,6 @@ class TerminalMonitor:
         "protocol_parser",
         "evidence_merge",
         "evidence_review",
-        "finding_proposal",
         "report_synthesize",
         "optional_verify",
         "finalize",
@@ -182,7 +175,6 @@ class TerminalMonitor:
         "protocol_parser": "Protocol Parser",
         "evidence_merge": "Evidence Merge",
         "evidence_review": "LLM Evidence Review",
-        "finding_proposal": "LLM Finding Proposal",
         "report_synthesize": "Report Synthesize",
         "optional_verify": "Claim Verify",
         "finalize": "Finalize",
@@ -264,9 +256,9 @@ class TerminalMonitor:
                 f"event={scout.get('event_density_hint', 0.0):.3f}\n"
             )
 
-        bg_f = state.get("background_findings", [])
-        ev_f = state.get("event_findings", [])
-        ps_f = state.get("parser_findings", [])
+        bg_m = state.get("background_measurements", [])
+        ev_m = state.get("event_measurements", [])
+        ps_m = state.get("parser_measurements", [])
         claims = []
         board = state.get("evidence_board")
         if board is not None and hasattr(board, "claims"):
@@ -277,36 +269,33 @@ class TerminalMonitor:
 
         sys.stdout.write(
             "Counts: "
-            f"bg_m={len(state.get('background_measurements', []))}, "
-            f"bg_f={len(bg_f)}, "
-            f"ev_m={len(state.get('event_measurements', []))}, "
-            f"ev_f={len(ev_f)}, "
-            f"parser_m={len(state.get('parser_measurements', []))}, "
-            f"parser_f={len(ps_f)}, "
+            f"bg_m={len(bg_m)}, "
+            f"ev_m={len(ev_m)}, "
+            f"parser_m={len(ps_m)}, "
             f"review={len(deliberations)}, "
             f"claims={len(claims)}, "
             f"verify={len(ver)}\n"
         )
         sys.stdout.write(f"Focused windows: {len(focused)}\n")
 
-        def _preview(findings: list[Any], title: str) -> None:
-            if not findings:
+        def _preview(measurements: list[Any], title: str) -> None:
+            if not measurements:
                 return
             preview = []
-            for f in findings[:3]:
+            for m in measurements[:3]:
                 try:
-                    preview.append(f"{f.finding_type}:{f.assertion.value}")
+                    preview.append(f"{m.measurement_name}")
                 except Exception:
                     try:
-                        preview.append(f"{f['finding_type']}:{f['assertion']}")
+                        preview.append(f"{m['measurement_name']}")
                     except Exception:
                         continue
             if preview:
                 sys.stdout.write(f"{title}: " + ", ".join(preview) + "\n")
 
-        _preview(bg_f, "BG preview")
-        _preview(ev_f, "Event preview")
-        _preview(ps_f, "Parser preview")
+        _preview(bg_m, "BG preview")
+        _preview(ev_m, "Event preview")
+        _preview(ps_m, "Parser preview")
 
         sys.stdout.flush()
 
@@ -327,7 +316,6 @@ def main() -> None:
     parser.add_argument("--enable-llm-evidence-grouping", action="store_true", help="Use LLM to group typed measurements into EvidenceItems")
     parser.add_argument("--enable-llm-claim-planning", action="store_true", help="Use LLM to plan AtomicClaimPlan entries from EvidenceItems")
     parser.add_argument("--enable-llm-review", action="store_true", help="Run optional evidence-board-only LLM review")
-    parser.add_argument("--enable-llm-finding-proposals", action="store_true", help="Run optional measurement-to-finding LLM proposal ablation")
     parser.add_argument("--enable-local-encoder", action="store_true", help="Run bounded local EEG encoder proxy tool inside event module")
     args = parser.parse_args()
 
@@ -356,7 +344,6 @@ def main() -> None:
         "enable_llm_evidence_grouping": args.enable_llm_evidence_grouping,
         "enable_llm_claim_planning": args.enable_llm_claim_planning,
         "enable_llm_review": args.enable_llm_review,
-        "enable_llm_finding_proposals": args.enable_llm_finding_proposals,
         "enable_local_encoder": args.enable_local_encoder,
         "run_log": [],
     }
@@ -368,9 +355,9 @@ def main() -> None:
 
     _write_json(out_dir / "manifest.json", final_state["manifest"])
     _write_json(out_dir / "scout_summary.json", final_state.get("scout_summary", {}))
-    _write_json(out_dir / "background_findings.json", final_state.get("background_findings", []))
-    _write_json(out_dir / "event_findings.json", final_state.get("event_findings", []))
-    _write_json(out_dir / "parsed_context.json", final_state.get("parser_findings", []))
+    _write_json(out_dir / "background_measurements.json", final_state.get("background_measurements", []))
+    _write_json(out_dir / "event_measurements.json", final_state.get("event_measurements", []))
+    _write_json(out_dir / "parsed_context.json", final_state.get("parser_measurements", []))
     _write_json(out_dir / "evidence_board.json", final_state.get("evidence_board"))
     board = final_state.get("evidence_board")
     shared_evidence_snapshot = board.ensure_shared_evidence_board().snapshot() if board is not None else None
@@ -420,25 +407,21 @@ def main() -> None:
             "llm_evidence_grouping_enabled": args.enable_llm_evidence_grouping,
             "llm_claim_planning_enabled": args.enable_llm_claim_planning,
             "llm_review_enabled": args.enable_llm_review,
-            "llm_finding_proposals_enabled": args.enable_llm_finding_proposals,
             "local_encoder_enabled": args.enable_local_encoder,
             "input_contract": "GT report is evaluation/supervision only and is not passed to parser or signal modules.",
         },
         "scout_summary": final_state.get("scout_summary", {}),
         "background_module": {
             "measurements": final_state.get("background_measurements", []),
-            "findings": final_state.get("background_findings", []),
             "tool_invocations": final_state.get("background_tool_invocations", []),
         },
         "event_module": {
             "measurements": final_state.get("event_measurements", []),
-            "findings": final_state.get("event_findings", []),
             "tool_invocations": final_state.get("event_tool_invocations", []),
             "focused_windows": final_state.get("focused_windows", []),
         },
         "protocol_parser": {
             "measurements": final_state.get("parser_measurements", []),
-            "findings": final_state.get("parser_findings", []),
             "tool_invocations": final_state.get("parser_tool_invocations", []),
         },
         "evidence_board": board,
@@ -446,7 +429,6 @@ def main() -> None:
         "llm_evidence_grouping": final_state.get("llm_evidence_grouping", {}),
         "llm_claim_planning": final_state.get("llm_claim_planning", {}),
         "agent_deliberations": final_state.get("agent_deliberations", []),
-        "llm_finding_proposals": final_state.get("llm_finding_proposals", {}),
         "report_synthesis": {
             "detail_section": final_state.get("detail_section"),
             "impression_section": final_state.get("impression_section"),
@@ -459,18 +441,14 @@ def main() -> None:
         "run_log": final_state.get("run_log", []),
         "stats": {
             "background_measurements": len(final_state.get("background_measurements", [])),
-            "background_findings": len(final_state.get("background_findings", [])),
             "event_measurements": len(final_state.get("event_measurements", [])),
-            "event_findings": len(final_state.get("event_findings", [])),
             "parser_measurements": len(final_state.get("parser_measurements", [])),
-            "parser_findings": len(final_state.get("parser_findings", [])),
             "shared_evidence_items": len(shared_evidence_snapshot.evidence_items) if shared_evidence_snapshot else 0,
             "llm_evidence_grouping_status": (final_state.get("llm_evidence_grouping", {}) or {}).get("status", ""),
             "llm_evidence_groups": len(((final_state.get("llm_evidence_grouping", {}) or {}).get("raw_result", {}) or {}).get("evidence_groups", [])),
             "llm_claim_planning_status": (final_state.get("llm_claim_planning", {}) or {}).get("status", ""),
             "llm_atomic_claims": len(((final_state.get("llm_claim_planning", {}) or {}).get("raw_result", {}) or {}).get("atomic_claims", [])),
             "agent_deliberations": len(final_state.get("agent_deliberations", [])),
-            "llm_finding_proposals": len((final_state.get("llm_finding_proposals", {}) or {}).get("finding_proposals", [])),
             "verification_records": len(final_state.get("verification", [])),
             "atomic_claim_plans": len(atomic_claim_plan),
             "surface_decisions": len(surface_decisions),
@@ -486,14 +464,13 @@ def main() -> None:
     _write_json(out_dir / "llm_evidence_grouping.json", final_state.get("llm_evidence_grouping", {}))
     _write_json(out_dir / "llm_claim_planning.json", final_state.get("llm_claim_planning", {}))
     _write_json(out_dir / "agent_deliberations.json", final_state.get("agent_deliberations", []))
-    _write_json(out_dir / "llm_finding_proposals.json", final_state.get("llm_finding_proposals", {}))
     (out_dir / "run.log").write_text("\n".join(final_state.get("run_log", [])), encoding="utf-8")
 
     generated_files = [
         "manifest.json",
         "scout_summary.json",
-        "background_findings.json",
-        "event_findings.json",
+        "background_measurements.json",
+        "event_measurements.json",
         "parsed_context.json",
         "evidence_board.json",
         "shared_evidence_board.json",
@@ -507,7 +484,6 @@ def main() -> None:
         "llm_evidence_grouping.json",
         "llm_claim_planning.json",
         "agent_deliberations.json",
-        "llm_finding_proposals.json",
         "run.log",
         "run_artifact_manifest.json",
     ]

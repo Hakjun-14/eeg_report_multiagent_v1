@@ -71,7 +71,6 @@ def _record_row(record: SlotFlowRecord) -> Dict[str, Any]:
         "clinical_slot": record.clinical_slot,
         "section_name": record.section_name,
         "measurement_exists": record.measurement_exists,
-        "finding_exists": record.finding_exists,
         "evidence_item_exists": record.evidence_item_exists,
         "evidence_ids": "|".join(record.evidence_ids),
         "evidence_type_counts": json.dumps(record.evidence_type_counts, sort_keys=True),
@@ -96,7 +95,6 @@ def _aggregate_rows(aggregate: EvidenceFlowAggregate, audits: Iterable[EvidenceF
         rows.append({
             "clinical_slot": spec.name,
             "measurement_rate": stats.get("measurement_rate", 0.0),
-            "finding_rate": stats.get("finding_rate", 0.0),
             "evidence_item_rate": stats.get("evidence_item_rate", 0.0),
             "claim_rate": stats.get("claim_rate", 0.0),
             "surface_rate": stats.get("surface_rate", 0.0),
@@ -109,10 +107,10 @@ def _aggregate_rows(aggregate: EvidenceFlowAggregate, audits: Iterable[EvidenceF
 
 
 def _slot_recommendation(stats: Dict[str, float], top_reason: str) -> str:
-    if stats.get("measurement_rate", 0.0) == 0 and stats.get("finding_rate", 0.0) == 0:
+    if stats.get("measurement_rate", 0.0) == 0:
         return "Stage 3A: improve evidence extraction for this slot."
-    if stats.get("evidence_item_rate", 0.0) < max(stats.get("measurement_rate", 0.0), stats.get("finding_rate", 0.0)) * 0.75:
-        return "Stage 3B: repair Measurement/Finding to EvidenceItem conversion."
+    if stats.get("evidence_item_rate", 0.0) < stats.get("measurement_rate", 0.0) * 0.75:
+        return "Stage 3B: repair Measurement to EvidenceItem conversion."
     if "no_atomic_claim_generated" in top_reason:
         return "Stage 3D: refine AtomicClaimPlan generation."
     if "atomic_claim_blocked" in top_reason or "surface_policy_rejected" in top_reason:
@@ -126,7 +124,7 @@ def _render_case_markdown(audit: EvidenceFlowAuditResult) -> str:
     lines = [f"# {audit.case_id} Evidence Flow Audit", "", f"- variant: `{audit.variant}`", f"- diagnosis: {audit.case_diagnosis}", ""]
     lines.append("## Slot Flow Table")
     headers = [
-        "slot", "measurement", "finding", "evidence", "claim", "surface",
+        "slot", "measurement", "evidence", "claim", "surface",
         "evidence_type_counts", "reportability_counts", "surface_action_counts", "suppression_reasons", "useful",
     ]
     lines.append("| " + " | ".join(headers) + " |")
@@ -135,7 +133,6 @@ def _render_case_markdown(audit: EvidenceFlowAuditResult) -> str:
         lines.append("| " + " | ".join([
             record.clinical_slot,
             str(record.measurement_exists),
-            str(record.finding_exists),
             str(record.evidence_item_exists),
             str(record.atomic_claim_exists),
             str(record.surfaced_in_final_prose),

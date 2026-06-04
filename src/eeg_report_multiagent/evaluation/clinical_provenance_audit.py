@@ -218,7 +218,7 @@ def extract_signal_provenance(evidence_board: Dict[str, Any], slot: str, limit: 
         return []
     keywords = EVIDENCE_KEYWORDS_BY_SLOT.get(slot, [slot])
     rows: List[Dict[str, Any]] = []
-    for item_type, items in (("finding", evidence_board.get("findings") or []), ("measurement", evidence_board.get("measurements") or [])):
+    for item_type, items in (("measurement", evidence_board.get("measurements") or []),):
         if not isinstance(items, list):
             continue
         for item in items:
@@ -226,7 +226,7 @@ def extract_signal_provenance(evidence_board: Dict[str, Any], slot: str, limit: 
                 continue
             haystack = " ".join(
                 str(item.get(key) or "")
-                for key in ("finding_id", "finding_type", "measurement_id", "measurement_name", "assertion")
+                for key in ("measurement_id", "measurement_name", "assertion")
             ).lower()
             if not any(keyword.lower() in haystack for keyword in keywords):
                 continue
@@ -250,7 +250,7 @@ def extract_signal_provenance(evidence_board: Dict[str, Any], slot: str, limit: 
                         "protocol": "unknown",
                         "measurement": measurement,
                         "evidence_type": "direct" if item_type == "measurement" else "derived",
-                        "source_object": item.get("measurement_id") or item.get("finding_id") or "unknown",
+                        "source_object": item.get("measurement_id") or item.get("evidence_id") or "unknown",
                     }
                 )
             if len(rows) >= limit:

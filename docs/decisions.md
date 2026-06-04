@@ -14,7 +14,7 @@ Reason: modules compute deterministic signal/parser outputs; agents only control
 Reason: privacy/safety and reproducible local evidence traceability.
 
 - Ban free-form strings in intermediate signal layers.
-Reason: enforce typed measurement/finding structure and prevent hidden hallucinated semantics.
+Reason: enforce typed measurement/evidence structure and prevent hidden hallucinated semantics.
 
 - Core vs optional.
 Core: background, event, parser, evidence board, synthesizer.
@@ -31,17 +31,17 @@ Reason: API use is limited to structured evidence gap review and local tool prop
 
 ## 2026-05-04
 - Use Rule+LLM Evidence Review as the first LLM-enhanced method path.
-Reason: this avoids expanding a brittle handcrafted rule forest while preserving the core constraint that raw EEG interpretation stays in local signal tools. The LLM receives only structured measurements/findings/tool registry summaries and returns typed weak-evidence, missing-slot, do-not-claim, claim-constraint, and bounded tool-proposal records.
+Reason: this avoids expanding a brittle handcrafted rule forest while preserving the core constraint that raw EEG interpretation stays in local signal tools. The LLM receives only structured measurements/evidence items/tool registry summaries and returns typed weak-evidence, missing-slot, do-not-claim, claim-constraint, and bounded tool-proposal records.
 
-- Treat LLM finding proposals and local EEG encoders as later variants/ablations.
-Reason: LLM structured finding proposal requires stricter schema/provenance validators, and a single local EEG encoder should be evaluated as an assistive signal tool rather than assumed to solve all clinical slots.
+- Treat LLM evidence proposals and local EEG encoders as later variants/ablations.
+Reason: LLM structured evidence proposal requires stricter schema/provenance validators, and a single local EEG encoder should be evaluated as an assistive signal tool rather than assumed to solve all clinical slots.
 
 ## 2026-05-05
 - Define method D as EvidenceBoard-only LLM report synthesis.
 Reason: D tests whether low lexical metrics are caused by report wording/organization rather than signal evidence quality. The LLM receives typed EvidenceBoard summaries and target section names only; it does not receive raw EEG, source pkl payloads, or GT report text.
 
 - Keep method E as a bounded local signal-tool variant, not an end-to-end encoder-to-report model.
-Reason: E should strengthen signal-side evidence while preserving the measurement -> finding -> evidence board -> report contract. The initial E implementation adds a focused-pass `morphology_feature_encoder` proxy tool that emits typed morphology-support and field-concentration measurements with time/channel provenance.
+Reason: E should strengthen signal-side evidence while preserving the measurement -> evidence item -> shared evidence board -> report contract. The initial E implementation adds a focused-pass `morphology_feature_encoder` proxy tool that emits typed morphology-support and field-concentration measurements with time/channel provenance.
 
 - Do not run full E over selected50 without addressing pkl I/O cost.
 Reason: D can reuse existing EvidenceBoard artifacts, but E requires reading processed EEG pkl windows. Row-level monitoring showed the main E runtime bottleneck is `Load Inputs` from many `seg_*.pkl` files on external storage, not the focused encoder computation itself.
@@ -58,8 +58,8 @@ Reason: a global PSD argmax at 0.5 Hz should not be verbalized as PDR or definit
 - Add conservative local event-type separation before seizure language.
 Reason: event-candidate burden, epileptiform-candidate likelihood, and electrographic seizure likelihood are distinct clinical claims. The one-pass local classifier keeps seizure likelihood low unless sustained candidate runs, burden, rhythmicity, and score prominence jointly support it.
 
-- Treat LLM measurement-to-finding mapping as an optional ablation, not core inference.
-Reason: the LLM may propose structured finding labels from typed measurements, but proposals must link to existing measurement IDs, use an allowlist, and remain separate from raw EEG interpretation or GT report comparison.
+- Treat LLM measurement-to-evidence mapping as an optional ablation, not core inference.
+Reason: the LLM may propose structured evidence labels from typed measurements, but proposals must link to existing measurement IDs, use an allowlist, and remain separate from raw EEG interpretation or GT report comparison.
 
 ## 2026-05-07
 - Treat the long clinical audit prompt as a master evaluation specification, not as a generation prompt.
@@ -104,7 +104,7 @@ Reason: 10-second mean channel energy is too coarse for clinical topography. The
 Reason: keyword rules, LLM review, and local encoders should create typed evidence only. Clinical claims are now planned in `ReportSynthesizer.build_atomic_claim_plan`, where each proposed sentence is marked `allow`, `caveat`, `block`, or `debug_only` before becoming a `ClaimRecord` or report text.
 
 - Save claim plans as first-class run artifacts.
-Reason: `atomic_claim_plan.json` and `inference_trace.report_synthesis.atomic_claim_plan` make it possible to audit which findings were surfaced, caveated, blocked, or retained as debug-only evidence.
+Reason: `atomic_claim_plan.json` and `inference_trace.report_synthesis.atomic_claim_plan` make it possible to audit which evidence items were surfaced, caveated, blocked, or retained as debug-only evidence.
 
 - Run localization v2 + atomic claim planning over selected50 as a local-tool validation batch.
 Reason: selected50 is a fixed case subset, while `32 passed` refers only to unit tests. The selected50 batch `batch_s0001_test_localization_v2_atomic_claim_selected50` completed 50/50 rows with no errors, invoked `event_peak_topography_localizer` in all rows, and wrote `atomic_claim_plan.json` in all row artifacts.
@@ -117,23 +117,23 @@ Reason: localization should not be surfaced from generic detail sections or from
 
 ## 2026-05-13
 - Unify report-surface policy behind `SurfacePolicy` and `AtomicClaimPlan`.
-Reason: Stage 0 leakage audit found that CELM-compatible synthesis and LLM synthesis could still verbalize Measurement/Finding objects or raw reviewer constraints directly. Final clinical prose now must come from `allow`/`caveat` atomic claim plans or deterministic safe fallbacks; `block` and `debug_only` entries remain available for audit/provenance only.
+Reason: Stage 0 leakage audit found that CELM-compatible synthesis and LLM synthesis could still verbalize Measurement/EvidenceItem objects or raw reviewer constraints directly. Final clinical prose now must come from `allow`/`caveat` atomic claim plans or deterministic safe fallbacks; `block` and `debug_only` entries remain available for audit/provenance only.
 
 - Treat event localization, candidate burden, train duration, laterality ratios, morphology screens, likelihood/support scores, and field-concentration ratios as debug/proxy evidence by default.
 Reason: these values may guide future claim gating, but they are not clinical report language by themselves. This prevents proxy features from becoming unsupported epileptiform, seizure, localization, or impression-level abnormalities.
 
 - Restrict LLM report synthesis to surface-approved atomic claim plans.
-Reason: method D can still use an LLM for wording/organization, but the LLM should not receive full measurements, findings, values previews, debug scores, or raw evidence-review text. This keeps external API usage downstream of the structured evidence gate and prevents raw/proxy evidence leakage.
+Reason: method D can still use an LLM for wording/organization, but the LLM should not receive full measurements, evidence items, values previews, debug scores, or raw evidence-review text. This keeps external API usage downstream of the structured evidence gate and prevents raw/proxy evidence leakage.
 
 ## 2026-05-14
 - Add `EvidenceItem` and `SharedEvidenceBoard` as the typed evidence layer before `AtomicClaimPlan`.
-Reason: measurements and findings are necessary but too close to raw tool outputs for report-surface governance. Stage 1 introduces a queryable evidence layer with evidence type, clinical target, reportability, time/space provenance, and measurement/finding links before any claim planning occurs.
+Reason: measurements and  evidence items are necessary but too close to raw tool outputs for report-surface governance. Stage 1 introduces a queryable evidence layer with evidence type, clinical target, reportability, time/space provenance, and measurement/evidence links before any claim planning occurs.
 
-- Convert Measurement/Finding objects into conservative EvidenceItems before report synthesis.
+- Convert Measurement/EvidenceItem objects into conservative EvidenceItems before report synthesis.
 Reason: proxy values such as candidate burden, localization ratios, field concentration, morphology support, and likelihood scores should be preserved for provenance and future gating while remaining `debug_only` by default. Reportable numeric values now need an EvidenceItem with unit, clinical target, section policy, and allow/caveat reportability.
 
 - Link `AtomicClaimPlan` entries to SharedEvidenceBoard evidence IDs.
-Reason: report-surface claims should be traceable to evidence items, not only to raw measurement/finding IDs. This supports future claim verification, clinical audit, and human-review tooling without weakening the Stage 0.5 surface policy.
+Reason: report-surface claims should be traceable to evidence items, not only to raw measurement/evidence IDs. This supports future claim verification, clinical audit, and human-review tooling without weakening the Stage 0.5 surface policy.
 
 - Add final-prose audit after report synthesis.
 Reason: Stage 1 makes evidence traceable before claim planning, but final output still needs an independent check that numeric values, section placement, seizure language, and debug/proxy phrases actually obey the EvidenceItem and AtomicClaimPlan links. Stage 2 therefore writes `final_prose_audit.json` and reports UnsupportedNumericRate, NumericProvenanceAccuracy, ClaimTraceCoverage, debug leakage, section leakage, and seizure-gate violations.
@@ -154,7 +154,7 @@ Reason: `Our_Upgrade_LLMProp` was produced before unified SurfacePolicy, SharedE
 Reason: regenerated selected50 exposed a false-positive audit path where rounded amplitude text such as `0.0-80 uV` failed to match `0.0-79.8 uV` EvidenceItems and instead matched unrelated low-frequency values by value overlap. The auditor now allows clinically harmless display rounding while preserving unit/reportability checks.
 
 - Add Stage 2.75 evidence flow and gate-loss audit before changing detectors or SurfacePolicy.
-Reason: `Our_EvidenceGated_v1` is safe but clinically under-informative. The new audit traces each clinical slot from Measurement/Finding through EvidenceItem, AtomicClaimPlan, and final prose so we can distinguish evidence absence, conservative reportability, claim planning failure, and true SurfacePolicy over-suppression.
+Reason: `Our_EvidenceGated_v1` is safe but clinically under-informative. The new audit traces each clinical slot from Measurement/EvidenceItem through EvidenceItem, AtomicClaimPlan, and final prose so we can distinguish evidence absence, conservative reportability, claim planning failure, and true SurfacePolicy over-suppression.
 
 - Treat Stage 3C as the current data-supported next focus, with targeted Stage 3A repairs for missing event amplitude/frequency, electrode maxima, and push-button metadata.
 Reason: selected50 evidence-flow audit shows most slots already have measurements, EvidenceItems, and AtomicClaimPlans, but many are blocked/debug-only due to reportability, morphology/state/protocol support, or internal-score suppression. Some slots remain absent and need extraction work, but the dominant bottleneck is evidence classification/weighting rather than raw loader failure.
@@ -170,13 +170,13 @@ Reason: calibration is not a bypass around SurfacePolicy. Selected50 rerendering
 
 ## 2026-05-15
 - Add Stage 2.9 GT-required suppressed evidence audit before relying on Stage 3C.
-Reason: Stage 2.75 showed many safe-but-suppressed upstream objects, but that alone could favor OURS-specific heuristics. Stage 2.9 uses GT reports only at evaluation time to ask whether clinically required GT claims already existed as Measurement/Finding, EvidenceItem, or AtomicClaimPlan objects before being suppressed. This keeps GT out of inference while grounding the next-stage decision in reference-aligned evidence flow.
+Reason: Stage 2.75 showed many safe-but-suppressed upstream objects, but that alone could favor OURS-specific heuristics. Stage 2.9 uses GT reports only at evaluation time to ask whether clinically required GT claims already existed as Measurement/EvidenceItem, EvidenceItem, or AtomicClaimPlan objects before being suppressed. This keeps GT out of inference while grounding the next-stage decision in reference-aligned evidence flow.
 
 - Keep Stage 2.9 matching conservative for unsafe proxy evidence.
 Reason: candidate burden alone is not matched to epileptiform morphology, event candidates are not matched to seizure absence/presence, field concentration ratios and laterality indices are not treated as localization claims by themselves, and global/boundary low-frequency peaks are not treated as PDR. This prevents the audit from falsely justifying reportability relaxation for clinically invalid support.
 
 - Use Stage 2.9 selected50 results to justify reportability calibration only where GT-required claims are present upstream.
-Reason: selected50 GT audit found high upstream availability but low surface rate: GTClaimEvidenceItemAvailability ≈ 0.875, GTClaimAtomicClaimAvailability ≈ 0.919, GTClaimSurfaceRate ≈ 0.096, and SurfacePolicyGapRate ≈ 0.818. This supports targeted Stage 3C/3E calibration for GT-matched, safe evidence while still requiring Stage 3A repairs for claims with no safe Measurement/Finding.
+Reason: selected50 GT audit found high upstream availability but low surface rate: GTClaimEvidenceItemAvailability ≈ 0.875, GTClaimAtomicClaimAvailability ≈ 0.919, GTClaimSurfaceRate ≈ 0.096, and SurfacePolicyGapRate ≈ 0.818. This supports targeted Stage 3C/3E calibration for GT-matched, safe evidence while still requiring Stage 3A repairs for claims with no safe Measurement/EvidenceItem.
 
 - Add Stage 2.95 generated-report atomic claim comparison for CELM and OURS variants.
 Reason: comparing OURS with provenance audits while leaving CELM only on BLEU/ROUGE would look like a method-favorable evaluation shift. Stage 2.95 therefore applies the same atomic claim extractor to GT reports and generated reports from CELM, `Our_EvidenceGated_v1`, and `FormatFitAggressive_v0`, then reports text-level GT claim recall, generated-claim precision, extra-claim rate, missing-claim rate, and numeric-claim recovery. CELM is not penalized for missing EvidenceBoard traces in this text-only comparison, but its outputs also cannot be claimed to be patient-specific evidence-grounded from this audit alone.
@@ -189,24 +189,24 @@ Reason: EvidenceItems should represent patient-specific facts and provenance, wh
 Reason: Stage 2.98 keeps legacy EvidenceItem policy fields for compatibility, but report synthesis and full-trace numeric audit now rely on SurfaceDecision/AtomicClaimPlan linkage rather than EvidenceItem reportability. Calibrated reportable `cal_*` EvidenceItem copies are no longer created, reducing role confusion between evidence facts and surface judgments.
 
 ## Schema slimming compatibility patch
-- `Finding` is now treated as a thin clinical grouping over `MeasurementValue` records.
-- New module-generated findings no longer duplicate measurement provenance, confidence, or source module.
+- `EvidenceItem` is now treated as a thin clinical grouping over `MeasurementValue` records.
+- New module-generated evidence items no longer duplicate measurement provenance, confidence, or source module.
 - `EvidenceItem` policy-like fields remain for artifact compatibility, but are documented as deprecated and non-authoritative.
-- Review/audit paths now prefer linked measurement provenance and `SurfaceDecision`/`AtomicClaimPlan` state over legacy evidence/finding policy fields where feasible.
+- Review/audit paths now prefer linked measurement provenance and `SurfaceDecision`/`AtomicClaimPlan` state over legacy evidence/evidence item policy fields where feasible.
 
 ## Remove deterministic measurement confidence from runtime schema
 - `MeasurementValue` no longer has a standalone `confidence` field because measurements are deterministic bounded-tool outputs.
-- New `Finding` and `EvidenceItem` runtime artifacts no longer copy measurement confidence/reliability.
+- New `EvidenceItem` and `EvidenceItem` runtime artifacts no longer copy measurement confidence/reliability.
 - Evidence selection should use typed values, provenance, and `SurfaceDecision`, not score-like confidence fields on measurements.
 - `SharedEvidenceBoard.query_for_surface_decisions()` was added as the SurfaceDecision-based replacement path for report-surface evidence lookup.
 
 ## Pre-claim-grouping cleanup
 - Removed remaining `confidence=` call-site arguments from deterministic EEG tool measurement helpers.
 - This confirms confidence is no longer part of measurement runtime artifacts before the larger claim-grouping refactor.
-- Smoke still shows the known 1:1 issue: 34 measurements -> 34 findings -> 34 evidence items -> 34 surface decisions.
+- Smoke still shows the known 1:1 issue: 34 measurements -> 34 evidence items -> 34 surface decisions.
 
-## Demote Finding from new runtime path
-- New background/event/protocol module outputs no longer populate `Finding`; they return measurements only.
-- `SharedEvidenceBoard` now groups deterministic measurements into clinical-target EvidenceItems when no findings are present.
-- Claim planning now supports the grouped-evidence path, reducing one smoke run from 34 findings/claims to 0 findings and 11 grouped evidence/claims.
-- `Finding` remains only as a legacy artifact/test compatibility schema until older audit paths are migrated.
+## Demote EvidenceItem from new runtime path
+- New background/event/protocol module outputs no longer populate `EvidenceItem`; they return measurements only.
+- `SharedEvidenceBoard` now groups deterministic measurements into clinical-target EvidenceItems when no evidence items are present.
+- Claim planning now supports the grouped-evidence path, reducing one smoke run from 34 evidence items/claims to 0 evidence items and 11 grouped evidence/claims.
+- `EvidenceItem` remains only as a legacy artifact/test compatibility schema until older audit paths are migrated.

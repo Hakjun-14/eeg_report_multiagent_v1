@@ -82,5 +82,4 @@ def test_llm_evidence_grouper_creates_board_from_measurement_only_payload():
     assert item.evidence_type == EvidenceType.DERIVED
     assert item.reportability == ClaimSurfaceAction.CAVEAT
     assert item.measurement_ids == ["m_pdr"]
-    assert item.finding_ids == []
     assert item.space_provenance["region"] == "occipital"

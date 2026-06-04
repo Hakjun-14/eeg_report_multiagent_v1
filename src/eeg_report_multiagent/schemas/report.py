@@ -32,7 +32,6 @@ class AtomicClaimPlan(BaseModel):
     claim_type: str
     proposed_text: str
     evidence_ids: List[str] = Field(default_factory=list)
-    linked_finding_ids: List[str] = Field(default_factory=list)
     linked_measurement_ids: List[str] = Field(default_factory=list)
     required_evidence: List[str] = Field(default_factory=list)
     missing_evidence: List[str] = Field(default_factory=list)
@@ -78,11 +77,11 @@ class ClaimRecord(BaseModel):
     claim_id: str
     section_type: ReportSectionType
     text: str
-    linked_finding_ids: List[str] = Field(default_factory=list)
+    linked_evidence_ids: List[str] = Field(default_factory=list)
 
 
 class VerificationRecord(BaseModel):
     claim_id: str
     support_label: ClaimSupportLabel
-    evidence_finding_ids: List[str] = Field(default_factory=list)
+    evidence_ids: List[str] = Field(default_factory=list)
     reason: Optional[str] = None

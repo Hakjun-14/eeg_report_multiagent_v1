@@ -7,7 +7,6 @@ from typing import Iterable, List, Mapping, Sequence
 
 from eeg_report_multiagent.schemas.evidence import EvidenceBoard
 from eeg_report_multiagent.schemas.evidence_flow import EvidenceFlowAggregate, EvidenceFlowAuditResult, SlotFlowRecord
-from eeg_report_multiagent.schemas.finding import Finding
 from eeg_report_multiagent.schemas.measurement import MeasurementValue
 from eeg_report_multiagent.schemas.report import AtomicClaimPlan, ClaimSurfaceAction
 from eeg_report_multiagent.schemas.shared_evidence import EvidenceItem, EvidenceType, SharedEvidenceBoard
@@ -15,7 +14,6 @@ from eeg_report_multiagent.schemas.shared_evidence import EvidenceItem, Evidence
 
 SUPPRESSION_REASONS = {
     "missing_measurement",
-    "missing_finding",
     "not_converted_to_evidence_item",
     "proxy_or_debug_only",
     "missing_required_provenance",
@@ -39,7 +37,7 @@ class SlotSpec:
     name: str
     section_name: str
     measurement_keywords: tuple[str, ...]
-    finding_keywords: tuple[str, ...]
+    evidence_keywords: tuple[str, ...]
     clinical_targets: tuple[str, ...]
     claim_keywords: tuple[str, ...]
     required_support: tuple[str, ...] = ()
@@ -76,7 +74,7 @@ CLINICAL_SLOT_SPECS: tuple[SlotSpec, ...] = (
 
 
 class EvidenceFlowAuditor:
-    """Trace clinical slots across Measurement/Finding -> EvidenceItem -> Claim -> final prose."""
+    """Trace clinical slots across Measurement -> EvidenceItem -> Claim -> final prose."""
 
     def audit_case(
         self,
@@ -94,7 +92,6 @@ class EvidenceFlowAuditor:
             self.audit_slot(
                 spec.name,
                 evidence_board.measurements,
-                evidence_board.findings,
                 shared_board,
                 atomic_claims,
                 sections,
@@ -119,7 +116,7 @@ class EvidenceFlowAuditor:
         missing = [
             record.clinical_slot
             for record in slot_records
-            if not record.measurement_exists and not record.finding_exists and not record.evidence_item_exists
+            if not record.measurement_exists and not record.evidence_item_exists
         ]
         diagnosis = self._case_diagnosis(slot_records)
         return EvidenceFlowAuditResult(
@@ -137,7 +134,6 @@ class EvidenceFlowAuditor:
         self,
         slot_name: str,
         measurements: Sequence[MeasurementValue],
-        findings: Sequence[Finding],
         evidence_board: SharedEvidenceBoard,
         atomic_claims: Sequence[AtomicClaimPlan],
         final_report: Mapping[str, str],
@@ -147,17 +143,16 @@ class EvidenceFlowAuditor:
     ) -> SlotFlowRecord:
         slot_spec = spec or self._spec_by_name(slot_name)
         measurement_hits = [m for m in measurements if self._matches_any(m.measurement_id, m.measurement_name, keywords=slot_spec.measurement_keywords)]
-        finding_hits = [f for f in findings if self._matches_any(f.finding_id, f.finding_type, *(f.measurement_ids or []), keywords=slot_spec.finding_keywords)]
         evidence_hits = [
             item
             for item in evidence_board.evidence_items
-            if self._evidence_matches_slot(item, slot_spec, measurement_hits, finding_hits)
+            if self._evidence_matches_slot(item, slot_spec, measurement_hits)
         ]
         evidence_ids = [item.evidence_id for item in evidence_hits]
         claim_hits = [
             claim
             for claim in atomic_claims
-            if self._claim_matches_slot(claim, slot_spec, evidence_ids, measurement_hits, finding_hits)
+            if self._claim_matches_slot(claim, slot_spec, evidence_ids, measurement_hits)
         ]
         surfaced, sentence = self.trace_claim_to_surface([claim.plan_id for claim in claim_hits], claim_hits, final_report)
         record = SlotFlowRecord(
@@ -165,10 +160,8 @@ class EvidenceFlowAuditor:
             section_name=slot_spec.section_name,
             clinical_slot=slot_spec.name,
             measurement_exists=bool(measurement_hits),
-            finding_exists=bool(finding_hits),
             evidence_item_exists=bool(evidence_hits),
             measurement_ids=[m.measurement_id for m in measurement_hits],
-            finding_ids=[f.finding_id for f in finding_hits],
             evidence_ids=evidence_ids,
             evidence_type_counts=dict(Counter(str(getattr(item.evidence_type, "value", item.evidence_type)) for item in evidence_hits)),
             reportability_counts=dict(Counter(str(getattr(item.reportability, "value", item.reportability)) for item in evidence_hits)),
@@ -221,9 +214,7 @@ class EvidenceFlowAuditor:
         reasons: list[str] = []
         if not record.measurement_exists:
             reasons.append("missing_measurement")
-        if not record.finding_exists:
-            reasons.append("missing_finding")
-        if (record.measurement_exists or record.finding_exists) and not record.evidence_item_exists:
+        if record.measurement_exists and not record.evidence_item_exists:
             reasons.append("not_converted_to_evidence_item")
         if record.evidence_item_exists:
             reportable = record.reportability_counts
@@ -261,7 +252,6 @@ class EvidenceFlowAuditor:
             denom = max(len(records), 1)
             availability[slot] = {
                 "measurement_rate": sum(r.measurement_exists for r in records) / denom,
-                "finding_rate": sum(r.finding_exists for r in records) / denom,
                 "evidence_item_rate": sum(r.evidence_item_exists for r in records) / denom,
                 "claim_rate": sum(r.atomic_claim_exists for r in records) / denom,
                 "surface_rate": sum(r.surfaced_in_final_prose for r in records) / denom,
@@ -300,7 +290,6 @@ class EvidenceFlowAuditor:
         item: EvidenceItem,
         spec: SlotSpec,
         measurement_hits: Sequence[MeasurementValue],
-        finding_hits: Sequence[Finding],
     ) -> bool:
         if self._is_reviewer_evidence(item) and spec.name != "uncertainty_caveat":
             return False
@@ -312,17 +301,15 @@ class EvidenceFlowAuditor:
                 str(item.normalized_value),
                 str(item.debug_payload),
                 " ".join(item.measurement_ids),
-                " ".join(item.finding_ids),
             ])
             if spec.name in {"awake", "drowsiness", "sleep_stage_ii_architecture", "photic_status_response", "hyperventilation_status_response"}:
-                return self._contains_keyword(item_text, spec.measurement_keywords + spec.finding_keywords + spec.claim_keywords)
+                return self._contains_keyword(item_text, spec.measurement_keywords + spec.evidence_keywords + spec.claim_keywords)
             if target in {"event_candidate", "localization", "epileptiform_morphology", "pdr", "background_amplitude", "background_slowing", "excess_beta", "seizure_evidence"}:
-                return self._contains_keyword(item_text, spec.measurement_keywords + spec.finding_keywords + spec.claim_keywords) or bool(
+                return self._contains_keyword(item_text, spec.measurement_keywords + spec.evidence_keywords + spec.claim_keywords) or bool(
                     set(item.measurement_ids) & {m.measurement_id for m in measurement_hits}
-                ) or bool(set(item.finding_ids) & {f.finding_id for f in finding_hits})
+                )
         measurement_ids = {m.measurement_id for m in measurement_hits}
-        finding_ids = {f.finding_id for f in finding_hits}
-        return bool(set(item.measurement_ids) & measurement_ids) or bool(set(item.finding_ids) & finding_ids)
+        return bool(set(item.measurement_ids) & measurement_ids)
 
     def _claim_matches_slot(
         self,
@@ -330,15 +317,12 @@ class EvidenceFlowAuditor:
         spec: SlotSpec,
         evidence_ids: Sequence[str],
         measurement_hits: Sequence[MeasurementValue],
-        finding_hits: Sequence[Finding],
     ) -> bool:
         if set(claim.evidence_ids) & set(evidence_ids):
             return True
         if set(claim.linked_measurement_ids) & {m.measurement_id for m in measurement_hits}:
             return True
-        if set(claim.linked_finding_ids) & {f.finding_id for f in finding_hits}:
-            return True
-        return self._matches_any(claim.plan_id, claim.claim_type, claim.proposed_text, keywords=spec.claim_keywords + spec.finding_keywords)
+        return self._matches_any(claim.plan_id, claim.claim_type, claim.proposed_text, keywords=spec.claim_keywords + spec.evidence_keywords)
 
     def _is_reviewer_evidence(self, item: EvidenceItem) -> bool:
         return item.evidence_id.startswith("ev_review_") or str(getattr(item.evidence_type, "value", item.evidence_type)) == "llm_assisted"
@@ -434,13 +418,13 @@ class EvidenceFlowAuditor:
             return "evidence exists but no atomic claim was generated"
         if record.atomic_claim_exists:
             return "atomic claim exists but did not reach final prose"
-        if record.measurement_exists or record.finding_exists:
-            return "measurement/finding exists but did not become report-surface evidence"
-        return "no slot-specific measurement/finding/evidence found"
+        if record.measurement_exists:
+            return "measurement exists but did not become report-surface evidence"
+        return "no slot-specific measurement/evidence found"
 
     def _case_diagnosis(self, records: Sequence[SlotFlowRecord]) -> str:
         total = len(records)
-        measurement_rate = sum(r.measurement_exists or r.finding_exists for r in records) / max(total, 1)
+        measurement_rate = sum(r.measurement_exists for r in records) / max(total, 1)
         evidence_rate = sum(r.evidence_item_exists for r in records) / max(total, 1)
         claim_rate = sum(r.atomic_claim_exists for r in records) / max(total, 1)
         surface_rate = sum(r.surfaced_in_final_prose for r in records) / max(total, 1)
@@ -456,7 +440,7 @@ class EvidenceFlowAuditor:
         else:
             bottleneck = "F. section rendering limitation"
         return (
-            f"measurement_or_finding_rate={measurement_rate:.2f}, evidence_item_rate={evidence_rate:.2f}, "
+            f"measurement_rate={measurement_rate:.2f}, evidence_item_rate={evidence_rate:.2f}, "
             f"claim_rate={claim_rate:.2f}, surface_rate={surface_rate:.2f}, "
             f"useful_but_suppressed={useful_count}; bottleneck={bottleneck}."
         )
@@ -465,7 +449,7 @@ class EvidenceFlowAuditor:
         records = [record for audit in case_audits for record in audit.slot_records]
         if not records:
             return "Stage 3A = evidence extraction improvement; no records were available."
-        measurement_rate = sum(r.measurement_exists or r.finding_exists for r in records) / len(records)
+        measurement_rate = sum(r.measurement_exists for r in records) / len(records)
         evidence_rate = sum(r.evidence_item_exists for r in records) / len(records)
         claim_rate = sum(r.atomic_claim_exists for r in records) / len(records)
         surface_rate = sum(r.surfaced_in_final_prose for r in records) / len(records)

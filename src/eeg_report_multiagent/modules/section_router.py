@@ -138,23 +138,23 @@ class SectionRouter:
             ],
         )
 
-    def covered_slots(self, finding_types: Set[str], requirements: List[SectionSlotRequirement]) -> Dict[str, bool]:
+    def covered_slots(self, evidence_targets: Set[str], requirements: List[SectionSlotRequirement]) -> Dict[str, bool]:
         out: Dict[str, bool] = {}
         for req in requirements:
-            out[req.slot_name] = bool(req.finding_types and any(ft in finding_types for ft in req.finding_types))
+            out[req.slot_name] = bool(req.evidence_targets and any(ft in evidence_targets for ft in req.evidence_targets))
         return out
 
     def _slot(
         self,
         name: str,
-        finding_types: List[str],
+        evidence_targets: List[str],
         reason: str,
         required: bool = True,
         nullable: bool = False,
     ) -> SectionSlotRequirement:
         return SectionSlotRequirement(
             slot_name=name,
-            finding_types=finding_types,
+            evidence_targets=evidence_targets,
             required=required,
             nullable=nullable,
             reason=reason,

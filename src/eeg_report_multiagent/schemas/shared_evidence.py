@@ -56,7 +56,6 @@ class EvidenceItem(BaseModel):
     time_provenance: Optional[Dict[str, Any]] = None
     space_provenance: Optional[Dict[str, Any]] = None
     measurement_ids: List[str] = Field(default_factory=list)
-    finding_ids: List[str] = Field(default_factory=list)
     reportability: ClaimSurfaceAction = Field(description="Deprecated compatibility; authoritative surface action is SurfaceDecision.surface_action.")
     allowed_sections: List[str] = Field(default_factory=list, description="Deprecated compatibility; authoritative section gating is SurfaceDecision.")
     forbidden_sections: List[str] = Field(default_factory=list, description="Deprecated compatibility; authoritative section gating is SurfaceDecision.")

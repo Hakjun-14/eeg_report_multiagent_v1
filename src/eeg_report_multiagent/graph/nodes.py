@@ -20,7 +20,6 @@ from eeg_report_multiagent.modules import (
     EvidenceReviewModule,
     EventModule,
     LLMClaimPlanner,
-    LLMFindingProposalModule,
     LLMEvidenceGrouper,
     ProtocolStateContextParser,
     ReportSynthesizer,
@@ -116,9 +115,8 @@ def background_module_node(state: Dict) -> Dict:
         channels=session.channels,
     )
     state["background_measurements"] = result["measurements"]
-    state["background_findings"] = result["findings"]
     state["background_tool_invocations"] = result["tool_invocations"]
-    _append_log(state, f"Background module done with {len(result['findings'])} findings")
+    _append_log(state, f"Background module done with {len(result['measurements'])} measurements")
     return state
 
 
@@ -133,10 +131,9 @@ def event_module_node(state: Dict) -> Dict:
         scout_summary=state["scout_summary"],
     )
     state["event_measurements"] = result["measurements"]
-    state["event_findings"] = result["findings"]
     state["event_tool_invocations"] = result["tool_invocations"]
     state["focused_windows"] = result["focused_windows"]
-    _append_log(state, f"Event module done with {len(result['findings'])} findings")
+    _append_log(state, f"Event module done with {len(result['measurements'])} measurements")
     return state
 
 
@@ -148,9 +145,8 @@ def protocol_parser_node(state: Dict) -> Dict:
         source_ref=state["manifest"].session_id,
     )
     state["parser_measurements"] = result["measurements"]
-    state["parser_findings"] = result["findings"]
     state["parser_tool_invocations"] = result["tool_invocations"]
-    _append_log(state, f"Protocol parser done with {len(result['findings'])} findings")
+    _append_log(state, f"Protocol parser done with {len(result['measurements'])} measurements")
     return state
 
 
@@ -162,11 +158,6 @@ def evidence_merge_node(state: Dict) -> Dict:
             state.get("background_measurements", []),
             state.get("event_measurements", []),
             state.get("parser_measurements", []),
-        ],
-        finding_groups=[
-            state.get("background_findings", []),
-            state.get("event_findings", []),
-            state.get("parser_findings", []),
         ],
         tool_invocation_groups=[
             state.get("background_tool_invocations", []),
@@ -197,7 +188,7 @@ def evidence_merge_node(state: Dict) -> Dict:
         }
     state["evidence_board"] = board
     shared_count = len(board.ensure_shared_evidence_board().evidence_items)
-    _append_log(state, f"Evidence board assembled with {len(board.findings)} findings and {shared_count} evidence items")
+    _append_log(state, f"Evidence board assembled with {len(board.measurements)} measurements and {shared_count} evidence items")
     return state
 
 
@@ -213,27 +204,6 @@ def evidence_review_node(state: Dict) -> Dict:
     state["evidence_board"].deliberations = [deliberation]
     append_deliberation_evidence(state["evidence_board"].ensure_shared_evidence_board(), deliberation)
     _append_log(state, f"LLM evidence review completed with status={deliberation.status}")
-    return state
-
-
-def finding_proposal_node(state: Dict) -> Dict:
-    if not state.get("enable_llm_finding_proposals", False):
-        state["llm_finding_proposals"] = {
-            "status": "skipped",
-            "finding_proposals": [],
-            "raw_eeg_used": False,
-            "gt_report_used": False,
-        }
-        _append_log(state, "Skipped LLM measurement-to-finding proposal ablation")
-        return state
-
-    proposer = LLMFindingProposalModule()
-    result = proposer.run(state["evidence_board"])
-    state["llm_finding_proposals"] = result
-    _append_log(
-        state,
-        f"LLM finding proposal completed with status={result.get('status')} proposals={len(result.get('finding_proposals', []))}",
-    )
     return state
 
 
@@ -294,12 +264,11 @@ def finalize_node(state: Dict) -> Dict:
     state["run_artifacts"] = {
         "manifest": state["manifest"],
         "scout_summary": state.get("scout_summary", {}),
-        "background_findings": state.get("background_findings", []),
-        "event_findings": state.get("event_findings", []),
-        "parsed_context": state.get("parser_findings", []),
+        "background_measurements": state.get("background_measurements", []),
+        "event_measurements": state.get("event_measurements", []),
+        "parsed_context": state.get("parser_measurements", []),
         "evidence_board": state.get("evidence_board"),
         "agent_deliberations": state.get("agent_deliberations", []),
-        "llm_finding_proposals": state.get("llm_finding_proposals", {}),
         "llm_claim_planning": state.get("llm_claim_planning", {}),
         "atomic_claim_plan": state.get("atomic_claim_plan", []),
         "surface_decisions": state.get("surface_decisions", []),

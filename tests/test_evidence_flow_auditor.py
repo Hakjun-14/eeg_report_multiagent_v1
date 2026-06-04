@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from eeg_report_multiagent.modules.evidence_flow_auditor import EvidenceFlowAuditor
-from eeg_report_multiagent.schemas import EvidenceBoard, Finding, MeasurementValue, QuantitationValue
-from eeg_report_multiagent.schemas.measurement import QuantitationKind, StatusSemantic
+from eeg_report_multiagent.schemas import EvidenceBoard, MeasurementValue, QuantitationValue
+from eeg_report_multiagent.schemas.measurement import QuantitationKind
 from eeg_report_multiagent.schemas.provenance import MeasurementProvenance, ProvenanceRecord, SourceType, SpaceProvenance, TimeProvenance
 from eeg_report_multiagent.schemas.report import AtomicClaimPlan, ClaimSurfaceAction, ReportSectionType
 from eeg_report_multiagent.schemas.shared_evidence import ClinicalTarget, EvidenceItem, EvidenceType, SharedEvidenceBoard
@@ -27,21 +27,9 @@ def _measurement(mid: str, name: str, value: float, unit: str) -> MeasurementVal
     )
 
 
-def _finding(fid: str, ftype: str, mid: str) -> Finding:
-    return Finding(
-        finding_id=fid,
-        finding_type=ftype,
-        assertion=StatusSemantic.PRESENT,
-        measurement_ids=[mid],
-        provenance=[_prov()],
-        source_module="background",
-    )
-
-
 def test_evidence_flow_traces_surfaced_pdr_candidate() -> None:
     measurement = _measurement("m_pdr_candidate_frequency", "pdr_candidate_frequency", 9.0, "Hz")
-    finding = _finding("f_background_pdr_frequency", "background_pdr_frequency", measurement.measurement_id)
-    board = EvidenceBoard(session_id="s", measurements=[measurement], findings=[finding])
+    board = EvidenceBoard(session_id="s", measurements=[measurement])
     shared = SharedEvidenceBoard(board_id="seb", recording_id="s")
     shared.add_evidence(EvidenceItem(
         evidence_id="ev_pdr",
@@ -52,7 +40,6 @@ def test_evidence_flow_traces_surfaced_pdr_candidate() -> None:
         unit="Hz",
         normalized_value=9.0,
         measurement_ids=[measurement.measurement_id],
-        finding_ids=[finding.finding_id],
         reportability=ClaimSurfaceAction.CAVEAT,
         allowed_sections=["background"],
         time_provenance={"start_sec": 0.0, "end_sec": 10.0},
@@ -65,7 +52,6 @@ def test_evidence_flow_traces_surfaced_pdr_candidate() -> None:
         claim_type="background_pdr_frequency",
         proposed_text="A posterior alpha rhythm candidate near 9.0 Hz is supported by structured evidence.",
         evidence_ids=["ev_pdr"],
-        linked_finding_ids=[finding.finding_id],
         linked_measurement_ids=[measurement.measurement_id],
         surface_action=ClaimSurfaceAction.CAVEAT,
     )
@@ -80,7 +66,6 @@ def test_evidence_flow_traces_surfaced_pdr_candidate() -> None:
     pdr = next(record for record in result.slot_records if record.clinical_slot == "pdr_frequency")
 
     assert pdr.measurement_exists
-    assert pdr.finding_exists
     assert pdr.evidence_item_exists
     assert pdr.atomic_claim_exists
     assert pdr.surfaced_in_final_prose
@@ -89,8 +74,7 @@ def test_evidence_flow_traces_surfaced_pdr_candidate() -> None:
 
 def test_evidence_flow_marks_useful_but_suppressed_when_claim_blocked() -> None:
     measurement = _measurement("m_pdr_candidate_frequency", "pdr_candidate_frequency", 9.0, "Hz")
-    finding = _finding("f_background_pdr_frequency", "background_pdr_frequency", measurement.measurement_id)
-    board = EvidenceBoard(session_id="s", measurements=[measurement], findings=[finding])
+    board = EvidenceBoard(session_id="s", measurements=[measurement])
     shared = SharedEvidenceBoard(board_id="seb", recording_id="s")
     shared.add_evidence(EvidenceItem(
         evidence_id="ev_pdr",
@@ -101,7 +85,6 @@ def test_evidence_flow_marks_useful_but_suppressed_when_claim_blocked() -> None:
         unit="Hz",
         normalized_value=9.0,
         measurement_ids=[measurement.measurement_id],
-        finding_ids=[finding.finding_id],
         reportability=ClaimSurfaceAction.CAVEAT,
         allowed_sections=["background"],
         time_provenance={"start_sec": 0.0, "end_sec": 10.0},

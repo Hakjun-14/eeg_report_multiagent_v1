@@ -14,10 +14,10 @@ class EvidenceGapSeverity(str, Enum):
 
 class EvidenceGap(BaseModel):
     gap_id: str
-    finding_type: str
+    evidence_target: str
     severity: EvidenceGapSeverity
     reason: str
-    linked_finding_ids: List[str] = Field(default_factory=list)
+    linked_measurement_ids: List[str] = Field(default_factory=list)
 
 
 class ToolRequestProposal(BaseModel):
@@ -27,23 +27,11 @@ class ToolRequestProposal(BaseModel):
     rationale: str
     expected_measurement: str
     linked_gap_ids: List[str] = Field(default_factory=list)
-    linked_finding_ids: List[str] = Field(default_factory=list)
+    linked_measurement_ids: List[str] = Field(default_factory=list)
 
 
 class RejectedToolRequestProposal(ToolRequestProposal):
     rejection_reason: str
-
-
-class FindingProposalRecord(BaseModel):
-    proposal_id: str
-    finding_type: str
-    assertion: str
-    confidence: float
-    rationale: str
-    linked_measurement_ids: List[str] = Field(default_factory=list)
-    provenance_policy: str = "measurement_linked_proposal_only"
-    accepted: bool = False
-    rejection_reason: Optional[str] = None
 
 
 class WeakEvidenceRecord(BaseModel):
@@ -53,7 +41,6 @@ class WeakEvidenceRecord(BaseModel):
     target_id: str
     reason: str
     linked_measurement_ids: List[str] = Field(default_factory=list)
-    linked_finding_ids: List[str] = Field(default_factory=list)
     recommendation: str
 
 
@@ -64,14 +51,15 @@ class MissingSlotRecord(BaseModel):
     severity: EvidenceGapSeverity
     reason: str
     expected_evidence: str
-    linked_finding_ids: List[str] = Field(default_factory=list)
+    linked_measurement_ids: List[str] = Field(default_factory=list)
 
 
 class DoNotClaimRecord(BaseModel):
     item_id: str
     text: str
     rationale: str
-    linked_finding_ids: List[str] = Field(default_factory=list)
+    linked_measurement_ids: List[str] = Field(default_factory=list)
+    linked_evidence_ids: List[str] = Field(default_factory=list)
 
 
 class ClaimConstraintRecord(BaseModel):
@@ -79,7 +67,8 @@ class ClaimConstraintRecord(BaseModel):
     target: str
     constraint: str
     rationale: str
-    linked_finding_ids: List[str] = Field(default_factory=list)
+    linked_measurement_ids: List[str] = Field(default_factory=list)
+    linked_evidence_ids: List[str] = Field(default_factory=list)
 
 
 class AgentDeliberationRecord(BaseModel):
@@ -94,7 +83,6 @@ class AgentDeliberationRecord(BaseModel):
     claim_constraints: List[ClaimConstraintRecord] = Field(default_factory=list)
     tool_request_proposals: List[ToolRequestProposal] = Field(default_factory=list)
     rejected_tool_request_proposals: List[RejectedToolRequestProposal] = Field(default_factory=list)
-    finding_proposals: List[FindingProposalRecord] = Field(default_factory=list)
     summary: str
     raw_eeg_used: bool = False
     gt_report_used: bool = False

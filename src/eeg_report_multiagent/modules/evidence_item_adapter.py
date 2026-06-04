@@ -3,15 +3,13 @@ from __future__ import annotations
 from typing import Any, Iterable, List
 
 from eeg_report_multiagent.schemas.agent import AgentDeliberationRecord
-from eeg_report_multiagent.schemas.finding import Finding
-from eeg_report_multiagent.schemas.measurement import MeasurementValue, StatusSemantic
+from eeg_report_multiagent.schemas.measurement import MeasurementValue
 from eeg_report_multiagent.schemas.provenance import ProvenanceRecord, SourceType
 from eeg_report_multiagent.schemas.report import ClaimSurfaceAction
 from eeg_report_multiagent.schemas.section_contract import SectionRole
 from eeg_report_multiagent.schemas.shared_evidence import ClinicalTarget, EvidenceItem, EvidenceType, SharedEvidenceBoard
 
 
-_EVENT_CANDIDATE_FINDINGS = {"epileptiform_event_candidate_burden", "event_train_duration"}
 _EVENT_CANDIDATE_MEASUREMENTS = {
     "event_candidate_score_distribution",
     "event_candidate_burden_ratio",
@@ -27,16 +25,6 @@ _DEBUG_SCORE_MEASUREMENTS = {
     "slowing_score",
     "beta_excess_score",
 }
-_LOCALIZATION_PROXY_FINDINGS = {
-    "event_laterality",
-    "event_focality_bifrontal_spread",
-    "event_clinical_localization",
-    "event_localization_support",
-    "event_peak_localization",
-    "event_peak_field_support",
-    "event_peak_laterality",
-    "event_field_concentration",
-}
 _LOCALIZATION_PROXY_MEASUREMENTS = {
     "event_laterality_index",
     "event_clinical_localization_label",
@@ -47,58 +35,28 @@ _LOCALIZATION_PROXY_MEASUREMENTS = {
     "event_bifrontal_ratio",
     "event_field_concentration_ratio",
 }
-_MORPHOLOGY_PROXY_FINDINGS = {"event_morphology_class", "event_morphology_support"}
 _MORPHOLOGY_PROXY_MEASUREMENTS = {"event_morphology_proxy_class", "event_morphology_proxy_score_distribution"}
-_PROTOCOL_FINDINGS = {
-    "protocol_state_awake",
-    "protocol_state_drowsy",
-    "protocol_state_sleep",
-    "protocol_hyperventilation_status",
-    "protocol_photic_stimulation_status",
-    "protocol_ekg_availability",
-    "protocol_video_availability",
-    "protocol_comparison_history_presence",
-}
 
 
 def build_shared_evidence_board(
     *,
     recording_id: str,
     measurements: Iterable[MeasurementValue],
-    findings: Iterable[Finding],
     board_id: str | None = None,
 ) -> SharedEvidenceBoard:
     measurement_list = list(measurements)
-    finding_list = list(findings)
-    measurement_index = {measurement.measurement_id: measurement for measurement in measurement_list}
     board = SharedEvidenceBoard(board_id=board_id or f"seb_{recording_id}", recording_id=recording_id)
 
-    if not finding_list:
-        for item in grouped_evidence_items_from_measurements(measurement_list):
-            board.add_evidence(item)
-        return board
-
-    linked_measurements: set[str] = set()
-    for finding in finding_list:
-        linked = [measurement_index[mid] for mid in finding.measurement_ids if mid in measurement_index]
-        if linked:
-            linked_measurements.update(m.measurement_id for m in linked)
-            board.add_evidence(evidence_item_from_finding(finding, linked[0]))
-        else:
-            board.add_evidence(evidence_item_from_finding(finding, None))
-
-    for measurement in measurement_list:
-        if measurement.measurement_id not in linked_measurements:
-            board.add_evidence(evidence_item_from_measurement(measurement))
+    for item in grouped_evidence_items_from_measurements(measurement_list):
+        board.add_evidence(item)
     return board
 
 
 def grouped_evidence_items_from_measurements(measurements: Iterable[MeasurementValue]) -> List[EvidenceItem]:
     """Build clinically grouped evidence directly from deterministic measurements.
 
-    This is the new runtime path. `Finding` remains loadable for old artifacts,
-    but new sessions should group measurements by clinical target before claim
-    planning rather than creating one finding/evidence/claim per tool output.
+    New sessions group measurements by clinical target before claim planning
+    rather than creating one evidence/claim per tool output.
     """
 
     measurement_list = list(measurements)
@@ -161,7 +119,6 @@ def _grouped_evidence_item(group_key: str, measurements: list[MeasurementValue])
         time_provenance=_time_dict(provenance),
         space_provenance=_space_dict(provenance),
         measurement_ids=[measurement.measurement_id for measurement in measurements],
-        finding_ids=[],
         reportability=reportability,
         allowed_sections=allowed,
         rationale=None,
@@ -169,7 +126,7 @@ def _grouped_evidence_item(group_key: str, measurements: list[MeasurementValue])
         debug_payload={
             "measurement_names": [measurement.measurement_name for measurement in measurements],
             "group_key": group_key,
-            "legacy_finding_removed": True,
+            "runtime_grouped_from_measurements": True,
         },
         created_by="measurement_grouped_evidence_builder",
         created_at=EvidenceItem.now_iso(),
@@ -238,7 +195,7 @@ def _numeric(measurement: MeasurementValue | None) -> float | None:
 def _range_or_value(measurement: MeasurementValue | None) -> Any:
     if measurement is None:
         return None
-    value, _unit = _value_and_unit(None, measurement)
+    value, _unit = _value_and_unit(measurement)
     return value
 
 
@@ -253,60 +210,27 @@ def _status_or_value(measurement: MeasurementValue) -> Any:
 
 
 def _debug_value(measurement: MeasurementValue) -> Any:
-    value, _unit = _value_and_unit(None, measurement)
+    value, _unit = _value_and_unit(measurement)
     return value
-
-
-def evidence_item_from_finding(finding: Finding, measurement: MeasurementValue | None = None) -> EvidenceItem:
-    evidence_type, target, reportability, rationale, allowed = _classify_finding(finding, measurement)
-    value, unit = _value_and_unit(finding, measurement)
-    provenance = _linked_provenance(finding, measurement)
-    return EvidenceItem(
-        evidence_id=f"ev_{finding.finding_id}",
-        source_module=_source_module(finding, measurement),
-        evidence_type=evidence_type,
-        clinical_target=target,
-        value=value,
-        unit=unit,
-        normalized_value=_normalized_value(finding, measurement),
-        confidence=None,
-        reliability=None,
-        time_provenance=_time_dict(provenance),
-        space_provenance=_space_dict(provenance),
-        measurement_ids=list(finding.measurement_ids),
-        finding_ids=[finding.finding_id],
-        reportability=reportability,
-        allowed_sections=allowed,
-        rationale=rationale,
-        caveat=_caveat_for(evidence_type, reportability),
-        debug_payload={
-            "finding_type": finding.finding_type,
-            "measurement_name": measurement.measurement_name if measurement else None,
-            "assertion": finding.assertion.value,
-        },
-        created_by="measurement_finding_adapter",
-        created_at=EvidenceItem.now_iso(),
-    )
 
 
 def evidence_item_from_measurement(measurement: MeasurementValue) -> EvidenceItem:
     evidence_type, target, reportability, rationale, allowed = _classify_measurement(measurement)
-    value, unit = _value_and_unit(None, measurement)
+    value, unit = _value_and_unit(measurement)
     provenance = [measurement.provenance]
     return EvidenceItem(
         evidence_id=f"ev_{measurement.measurement_id}",
-        source_module=_source_module(None, measurement),
+        source_module=_source_module(measurement),
         evidence_type=evidence_type,
         clinical_target=target,
         value=value,
         unit=unit,
-        normalized_value=_normalized_value(None, measurement),
+        normalized_value=_normalized_value(measurement),
         confidence=None,
         reliability=None,
         time_provenance=_time_dict(provenance),
         space_provenance=_space_dict(provenance),
         measurement_ids=[measurement.measurement_id],
-        finding_ids=[],
         reportability=reportability,
         allowed_sections=allowed,
         rationale=rationale,
@@ -331,7 +255,6 @@ def append_deliberation_evidence(board: SharedEvidenceBoard, deliberation: Agent
                 confidence=None,
                 reliability=0.25,
                 measurement_ids=list(item.linked_measurement_ids),
-                finding_ids=list(item.linked_finding_ids),
                 reportability=ClaimSurfaceAction.DEBUG_ONLY,
                 rationale="LLM-assisted weak-evidence record is audit-only and cannot directly surface.",
                 debug_payload={"record_type": "weak_evidence", "target_id": item.target_id},
@@ -350,8 +273,7 @@ def append_deliberation_evidence(board: SharedEvidenceBoard, deliberation: Agent
                 unit=None,
                 confidence=None,
                 reliability=0.25,
-                measurement_ids=[],
-                finding_ids=list(item.linked_finding_ids),
+                measurement_ids=list(item.linked_measurement_ids),
                 reportability=ClaimSurfaceAction.DEBUG_ONLY,
                 rationale="LLM-assisted missing-slot record is audit-only and cannot directly surface.",
                 debug_payload={"record_type": "missing_slot", "target_module": item.target_module},
@@ -370,8 +292,7 @@ def append_deliberation_evidence(board: SharedEvidenceBoard, deliberation: Agent
                 unit=None,
                 confidence=None,
                 reliability=0.25,
-                measurement_ids=[],
-                finding_ids=list(item.linked_finding_ids),
+                measurement_ids=list(item.linked_measurement_ids),
                 reportability=ClaimSurfaceAction.DEBUG_ONLY,
                 rationale="LLM-assisted do-not-claim record is audit-only and cannot directly surface.",
                 debug_payload={"record_type": "do_not_claim", "item_id": item.item_id},
@@ -390,8 +311,7 @@ def append_deliberation_evidence(board: SharedEvidenceBoard, deliberation: Agent
                 unit=None,
                 confidence=None,
                 reliability=0.25,
-                measurement_ids=[],
-                finding_ids=list(item.linked_finding_ids),
+                measurement_ids=list(item.linked_measurement_ids),
                 reportability=ClaimSurfaceAction.DEBUG_ONLY,
                 rationale="LLM-assisted claim-constraint record is audit-only and cannot directly surface.",
                 debug_payload={"record_type": "claim_constraint", "constraint_id": item.constraint_id},
@@ -399,42 +319,6 @@ def append_deliberation_evidence(board: SharedEvidenceBoard, deliberation: Agent
                 created_at=EvidenceItem.now_iso(),
             )
         )
-
-
-def _classify_finding(
-    finding: Finding,
-    measurement: MeasurementValue | None,
-) -> tuple[EvidenceType, ClinicalTarget, ClaimSurfaceAction, str, List[str]]:
-    mname = measurement.measurement_name if measurement else ""
-    if finding.finding_type in _EVENT_CANDIDATE_FINDINGS or mname in _EVENT_CANDIDATE_MEASUREMENTS:
-        return EvidenceType.PROXY, ClinicalTarget.EVENT_CANDIDATE, ClaimSurfaceAction.DEBUG_ONLY, "Event candidate screens are proxy evidence, not seizure or definite epileptiform evidence.", []
-    if finding.finding_type in _LOCALIZATION_PROXY_FINDINGS or mname in _LOCALIZATION_PROXY_MEASUREMENTS:
-        return EvidenceType.PROXY, ClinicalTarget.LOCALIZATION, ClaimSurfaceAction.DEBUG_ONLY, "Localization screens are proxy evidence until claim-gated with morphology and spatial provenance.", []
-    if finding.finding_type in _MORPHOLOGY_PROXY_FINDINGS or mname in _MORPHOLOGY_PROXY_MEASUREMENTS:
-        return EvidenceType.DEBUG, ClinicalTarget.EPILEPTIFORM_MORPHOLOGY, ClaimSurfaceAction.DEBUG_ONLY, "Morphology screens are debug/proxy evidence until validated morphology support exists.", []
-    if mname in _DEBUG_SCORE_MEASUREMENTS:
-        target = ClinicalTarget.SEIZURE_EVIDENCE if "seizure" in mname else ClinicalTarget.UNCERTAINTY
-        return EvidenceType.DEBUG, target, ClaimSurfaceAction.DEBUG_ONLY, "Internal score measurements are audit/debug evidence only.", []
-    if finding.finding_type == "background_pdr_frequency":
-        if finding.assertion == StatusSemantic.PRESENT and _has_time_or_space(_linked_provenance(finding, measurement)):
-            action = ClaimSurfaceAction.ALLOW if measurement is not None and measurement.metadata.get("pdr_supported") == "true" else ClaimSurfaceAction.CAVEAT
-            return EvidenceType.DERIVED, ClinicalTarget.PDR, action, "PDR evidence is derived and may surface only with valid provenance and policy gating.", [SectionRole.BACKGROUND.value, SectionRole.DETAIL.value, SectionRole.SLEEP.value]
-        return EvidenceType.PROXY, ClinicalTarget.PDR, ClaimSurfaceAction.BLOCK, "PDR evidence lacks sufficient provenance for report surface.", []
-    if finding.finding_type == "background_frequency":
-        return EvidenceType.PROXY, ClinicalTarget.BACKGROUND_SLOWING, ClaimSurfaceAction.DEBUG_ONLY, "Global dominant frequency is not a PDR claim and remains debug/proxy evidence.", []
-    if finding.finding_type == "background_amplitude_range":
-        return EvidenceType.DERIVED, ClinicalTarget.BACKGROUND_AMPLITUDE, ClaimSurfaceAction.CAVEAT, "Amplitude range can surface as caveated provenance-linked evidence.", [SectionRole.BACKGROUND.value, SectionRole.DETAIL.value]
-    if finding.finding_type == "background_slowing":
-        action = ClaimSurfaceAction.CAVEAT if finding.assertion == StatusSemantic.PRESENT else ClaimSurfaceAction.BLOCK
-        return EvidenceType.DERIVED, ClinicalTarget.BACKGROUND_SLOWING, action, "Slowing is derived local-tool evidence and requires caveated prose.", [SectionRole.BACKGROUND.value, SectionRole.DETAIL.value, SectionRole.IMPRESSION.value]
-    if finding.finding_type == "excess_beta":
-        action = ClaimSurfaceAction.CAVEAT if finding.assertion == StatusSemantic.PRESENT else ClaimSurfaceAction.BLOCK
-        return EvidenceType.DERIVED, ClinicalTarget.EXCESS_BETA, action, "Excess beta is derived local-tool evidence and requires caveated prose.", [SectionRole.BACKGROUND.value, SectionRole.DETAIL.value, SectionRole.IMPRESSION.value]
-    if finding.finding_type in _PROTOCOL_FINDINGS or finding.finding_type.startswith("protocol_"):
-        action = ClaimSurfaceAction.ALLOW if finding.assertion != StatusSemantic.UNKNOWN else ClaimSurfaceAction.BLOCK
-        target = ClinicalTarget.STATE if "state" in finding.finding_type else ClinicalTarget.PROTOCOL
-        return EvidenceType.METADATA, target, action, "Structured protocol/context status may surface when non-unknown.", [SectionRole.DETAIL.value, SectionRole.BACKGROUND.value, SectionRole.SLEEP.value]
-    return EvidenceType.DERIVED, ClinicalTarget.UNKNOWN, ClaimSurfaceAction.BLOCK, "Unmapped finding type is retained in evidence board but not reportable.", []
 
 
 def _classify_measurement(measurement: MeasurementValue) -> tuple[EvidenceType, ClinicalTarget, ClaimSurfaceAction, str, List[str]]:
@@ -446,11 +330,11 @@ def _classify_measurement(measurement: MeasurementValue) -> tuple[EvidenceType, 
     if name in _MORPHOLOGY_PROXY_MEASUREMENTS or name in _DEBUG_SCORE_MEASUREMENTS or name.startswith("relative_bandpower_"):
         return EvidenceType.DEBUG, ClinicalTarget.UNCERTAINTY, ClaimSurfaceAction.DEBUG_ONLY, "Internal measurement is debug evidence only.", []
     if name.startswith("protocol_") or name.endswith("_status"):
-        return EvidenceType.METADATA, ClinicalTarget.PROTOCOL, ClaimSurfaceAction.ALLOW, "Structured metadata/status measurement may surface through a finding.", [SectionRole.DETAIL.value]
-    return EvidenceType.DERIVED, ClinicalTarget.UNKNOWN, ClaimSurfaceAction.BLOCK, "Measurement requires mapped finding before report surface.", []
+        return EvidenceType.METADATA, ClinicalTarget.PROTOCOL, ClaimSurfaceAction.ALLOW, "Structured metadata/status measurement may surface through claim planning.", [SectionRole.DETAIL.value]
+    return EvidenceType.DERIVED, ClinicalTarget.UNKNOWN, ClaimSurfaceAction.BLOCK, "Measurement requires mapped EvidenceItem before report surface.", []
 
 
-def _source_module(finding: Finding | None, measurement: MeasurementValue | None) -> str:
+def _source_module(measurement: MeasurementValue | None) -> str:
     prov = measurement.provenance if measurement is not None else None
     if prov and prov.source_type == SourceType.METADATA:
         return "metadata"
@@ -463,14 +347,8 @@ def _source_module(finding: Finding | None, measurement: MeasurementValue | None
     return "unknown"
 
 
-def _linked_provenance(finding: Finding | None, measurement: MeasurementValue | None) -> List[ProvenanceRecord]:
-    if measurement is not None:
-        return [measurement.provenance]
-    return list(finding.provenance) if finding is not None else []
-
-
-def _value_and_unit(finding: Finding | None, measurement: MeasurementValue | None) -> tuple[Any, str | None]:
-    q = finding.quantitation if finding and finding.quantitation is not None else (measurement.quantitation if measurement else None)
+def _value_and_unit(measurement: MeasurementValue | None) -> tuple[Any, str | None]:
+    q = measurement.quantitation if measurement else None
     if q is not None:
         if q.exact is not None:
             return q.exact, q.unit
@@ -488,8 +366,8 @@ def _value_and_unit(finding: Finding | None, measurement: MeasurementValue | Non
     return None, None
 
 
-def _normalized_value(finding: Finding | None, measurement: MeasurementValue | None) -> Any:
-    value, _unit = _value_and_unit(finding, measurement)
+def _normalized_value(measurement: MeasurementValue | None) -> Any:
+    value, _unit = _value_and_unit(measurement)
     return value
 
 
@@ -533,10 +411,6 @@ def _space_dict(provenance: List[ProvenanceRecord]) -> dict[str, Any] | None:
         "side": sorted(set(sides))[0] if sides else None,
         "electrode_maxima": sorted(set(channels))[:4],
     }
-
-
-def _has_time_or_space(provenance: List[ProvenanceRecord]) -> bool:
-    return bool(_time_dict(provenance) or _space_dict(provenance))
 
 
 def _reliability(evidence_type: EvidenceType, reportability: ClaimSurfaceAction, provenance: List[ProvenanceRecord]) -> float | None:

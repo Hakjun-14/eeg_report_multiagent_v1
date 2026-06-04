@@ -15,7 +15,6 @@ from eeg_report_multiagent.schemas.agent import (
     WeakEvidenceRecord,
 )
 from eeg_report_multiagent.schemas.evidence import EvidenceBoard
-from eeg_report_multiagent.schemas.finding import Finding
 from eeg_report_multiagent.schemas.measurement import MeasurementValue
 from eeg_report_multiagent.tools import build_background_registry, build_event_registry, build_parser_registry
 
@@ -25,7 +24,7 @@ class EvidenceReviewModule:
 
     This module is intentionally placed after EvidenceBoard assembly. It never
     receives raw EEG arrays or GT report text; it can only critique typed
-    measurements/findings and suggest bounded local tools.
+    measurements and suggest bounded local tools.
     """
 
     reviewer_name = "rule_plus_llm_evidence_reviewer"
@@ -120,40 +119,6 @@ class EvidenceReviewModule:
 
     def _build_payload(self, board: EvidenceBoard) -> Dict[str, Any]:
         measurements_by_id = {m.measurement_id: m for m in board.measurements}
-        findings: List[Dict[str, Any]] = []
-        for finding in board.findings:
-            q = finding.quantitation
-            linked_measurements = [measurements_by_id[mid] for mid in finding.measurement_ids if mid in measurements_by_id]
-            provenance = [m.provenance for m in linked_measurements] or list(finding.provenance)
-            source_types = sorted({str(p.source_type.value) for p in provenance})
-            has_time = any(p.time.window_indices or p.time.start_sec is not None or p.time.end_sec is not None for p in provenance)
-            has_space = any(p.space.channels or p.space.region or p.space.laterality for p in provenance)
-            has_measurement_provenance = any(p.measurement is not None for p in provenance)
-            findings.append(
-                {
-                    "finding_id": finding.finding_id,
-                    "finding_type": finding.finding_type,
-                    "assertion": finding.assertion.value,
-                    "quantitation": {
-                        "kind": q.kind.value,
-                        "unit": q.unit,
-                        "exact": q.exact,
-                        "lower": q.lower,
-                        "upper": q.upper,
-                        "values_count": len(q.values),
-                    }
-                    if q is not None
-                    else None,
-                    "measurement_ids": finding.measurement_ids,
-                    "provenance_summary": {
-                        "source_types": source_types,
-                        "provenance_count": len(provenance),
-                        "has_time": has_time,
-                        "has_space": has_space,
-                        "has_measurement_provenance": has_measurement_provenance,
-                    },
-                }
-            )
 
         measurements = []
         for m in board.measurements:
@@ -189,15 +154,11 @@ class EvidenceReviewModule:
                         ),
                         "tool_name": provenance.measurement.tool_name if provenance.measurement else None,
                     },
-                    "linked_finding_ids": [
-                        f.finding_id for f in board.findings if m.measurement_id in f.measurement_ids
-                    ],
-                }
+                                    }
             )
 
         return {
             "session_id": board.session_id,
-            "findings": findings,
             "measurements": measurements,
             "measurement_count": len(measurements_by_id),
             "tool_invocations": [
@@ -215,7 +176,7 @@ class EvidenceReviewModule:
                 "forbidden": [
                     "raw_eeg_interpretation",
                     "gt_report_use",
-                    "unsupported_new_finding_creation",
+                    "unsupported_new_evidence_creation",
                     "unregistered_tool_request",
                 ],
                 "preferred_outputs": [
@@ -253,31 +214,28 @@ class EvidenceReviewModule:
         proposals: List[ToolRequestProposal] = []
         rejected: List[RejectedToolRequestProposal] = []
 
-        findings_by_type = {f.finding_type: f for f in board.findings}
-        measurements_by_id = {m.measurement_id: m for m in board.measurements}
-        signal_findings = [f for f in board.findings if self._is_signal_finding(f, measurements_by_id)]
-        missing_space = [f for f in signal_findings if not self._has_space_provenance(f, measurements_by_id)]
+        signal_measurements = [m for m in board.measurements if m.provenance.source_type.value == "signal"]
+        missing_space = [m for m in signal_measurements if not (m.provenance.space.channels or m.provenance.space.region or m.provenance.space.laterality)]
         if missing_space:
-            linked = [f.finding_id for f in missing_space]
+            linked_measurements = sorted({m.measurement_id for m in missing_space})
             evidence_gaps.append(
                 {
                     "gap_id": "gap_signal_spatial_provenance",
-                    "finding_type": "signal_spatial_provenance",
+                    "evidence_target": "signal_spatial_provenance",
                     "severity": "high",
-                    "reason": "Several signal-derived findings lack channel, region, or laterality provenance.",
-                    "linked_finding_ids": linked,
-                }
+                    "reason": "Several signal-derived measurements lack channel, region, or laterality provenance.",
+                    "linked_measurement_ids": linked_measurements,
+                                    }
             )
             weak_evidence.append(
                 {
                     "weakness_id": "weak_signal_spatial_provenance",
                     "severity": "high",
                     "target_type": "provenance",
-                    "target_id": "signal_findings",
-                    "reason": "Time/tool provenance is present, but spatial provenance is incomplete for multiple signal findings.",
-                    "linked_measurement_ids": self._measurement_ids_for_findings(missing_space),
-                    "linked_finding_ids": linked,
-                    "recommendation": "Avoid focal or lateralized claims unless a region/channel-aware tool supports them.",
+                    "target_id": "signal_measurements",
+                    "reason": "Time/tool provenance is present, but spatial provenance is incomplete for multiple signal measurements.",
+                    "linked_measurement_ids": linked_measurements,
+                                        "recommendation": "Avoid focal or lateralized claims unless a region/channel-aware tool supports them.",
                 }
             )
             missing_slots.append(
@@ -288,22 +246,21 @@ class EvidenceReviewModule:
                     "severity": "high",
                     "reason": "Current background measurements are mostly global and do not localize slowing or amplitude changes.",
                     "expected_evidence": "region-wise bandpower/amplitude/slowing measurements with channel or region provenance",
-                    "linked_finding_ids": linked,
-                }
+                    "linked_measurement_ids": linked_measurements,
+                                    }
             )
             claim_constraints.append(
                 {
                     "constraint_id": "constraint_no_focal_without_space",
                     "target": "focal_or_lateralized_signal_claims",
                     "constraint": "Do not make focal, lateralized, or regional claims without spatial provenance.",
-                    "rationale": "The evidence board cannot yet identify reliable channel/region/laterality for these findings.",
-                    "linked_finding_ids": linked,
-                }
+                    "rationale": "The evidence board cannot yet identify reliable channel/region/laterality for these measurements.",
+                    "linked_measurement_ids": linked_measurements,
+                                    }
             )
 
         dominant = self._measurement_by_name(board, "background_dominant_frequency_hz")
         if dominant and dominant.quantitation and dominant.quantitation.exact in {0.5, 30.0}:
-            linked_findings = self._linked_finding_ids(board, dominant.measurement_id)
             weak_evidence.append(
                 {
                     "weakness_id": "weak_background_frequency_boundary",
@@ -312,8 +269,7 @@ class EvidenceReviewModule:
                     "target_id": dominant.measurement_id,
                     "reason": "Dominant frequency lies exactly on the spectral search boundary.",
                     "linked_measurement_ids": [dominant.measurement_id],
-                    "linked_finding_ids": linked_findings,
-                    "recommendation": "Treat this as a weak global spectral hint, not a clinical posterior dominant rhythm estimate.",
+                                        "recommendation": "Treat this as a weak global spectral hint, not a clinical posterior dominant rhythm estimate.",
                 }
             )
             claim_constraints.append(
@@ -322,81 +278,7 @@ class EvidenceReviewModule:
                     "target": "background_frequency",
                     "constraint": "Use cautious language for background frequency when the estimate is at a search boundary.",
                     "rationale": "Boundary estimates can reflect drift/artifact or poor frequency localization.",
-                    "linked_finding_ids": linked_findings,
-                }
-            )
-
-        event_burden = findings_by_type.get("epileptiform_event_candidate_burden")
-        morphology_support = findings_by_type.get("event_morphology_support")
-        has_morphology_proxy = morphology_support is not None and morphology_support.assertion.value == "present"
-        if event_burden is not None and not has_morphology_proxy:
-            missing_slots.append(
-                {
-                    "slot_id": "slot_event_morphology",
-                    "slot_name": "event_morphology",
-                    "target_module": "event",
-                    "severity": "high",
-                    "reason": "Event burden is estimated, but spike/sharp morphology evidence is not present.",
-                    "expected_evidence": "focused morphology descriptors such as sharpness, duration, field, and after-going slow component",
-                    "linked_finding_ids": [event_burden.finding_id],
-                }
-            )
-            do_not_claim.append(
-                {
-                    "item_id": "do_not_claim_definite_epileptiform",
-                    "text": "Do not claim definite epileptiform discharges from candidate burden alone.",
-                    "rationale": "The current evidence board has event-candidate screening evidence but no morphology confirmation.",
-                    "linked_finding_ids": [event_burden.finding_id],
-                }
-            )
-            claim_constraints.append(
-                {
-                    "constraint_id": "constraint_event_candidate_language",
-                    "target": "event_findings",
-                    "constraint": "Use event-like or candidate language unless morphology-specific evidence is available.",
-                    "rationale": "Burden/duration/laterality screening scores do not establish epileptiform morphology.",
-                    "linked_finding_ids": [event_burden.finding_id],
-                }
-            )
-        elif event_burden is not None and has_morphology_proxy:
-            linked = [event_burden.finding_id, morphology_support.finding_id]
-            weak_evidence.append(
-                {
-                    "weakness_id": "weak_event_morphology_proxy_not_classifier",
-                    "severity": "medium",
-                    "target_type": "finding",
-                    "target_id": morphology_support.finding_id,
-                    "reason": "Local morphology encoder evidence is a proxy feature summary, not a validated epileptiform morphology classifier.",
-                    "linked_measurement_ids": self._measurement_ids_for_findings([morphology_support]),
-                    "linked_finding_ids": linked,
-                    "recommendation": "Use morphology-support wording and keep definite epileptiform claims provisional.",
-                }
-            )
-            claim_constraints.append(
-                {
-                    "constraint_id": "constraint_morphology_proxy_language",
-                    "target": "event_findings",
-                    "constraint": "Local morphology-feature encoder support may strengthen event-candidate language but does not prove definite epileptiform discharges or seizures.",
-                    "rationale": "The encoder tool is local and bounded, but not yet calibrated as a clinical epileptiform classifier.",
-                    "linked_finding_ids": linked,
-                }
-            )
-            do_not_claim.append(
-                {
-                    "item_id": "do_not_claim_definite_epileptiform",
-                    "text": "Do not claim definite epileptiform discharges from morphology proxy evidence alone.",
-                    "rationale": "The current evidence board has local encoder morphology support, but not a validated clinical epileptiform classifier.",
-                    "linked_finding_ids": linked,
-                }
-            )
-            claim_constraints.append(
-                {
-                    "constraint_id": "constraint_event_candidate_language",
-                    "target": "event_findings",
-                    "constraint": "Use event-like or morphology-supported candidate language unless a validated morphology classifier or human review confirms epileptiform morphology.",
-                    "rationale": "The local encoder strengthens candidate characterization but does not establish clinical epileptiform morphology by itself.",
-                    "linked_finding_ids": linked,
-                }
+                                    }
             )
 
         if "focality_bifrontal_summary" in available_tools.get("event", []):
@@ -408,7 +290,6 @@ class EvidenceReviewModule:
                     rationale="Bifrontal spread should be kept bounded to the registered local event tool.",
                     expected_measurement="event_bifrontal_ratio with channel provenance",
                     linked_gap_ids=["gap_signal_spatial_provenance"] if missing_space else [],
-                    linked_finding_ids=[f.finding_id for f in signal_findings if f.finding_type.startswith("event") or f.finding_type.startswith("epileptiform")],
                 )
             )
 
@@ -467,29 +348,8 @@ class EvidenceReviewModule:
             return "boolean"
         return "unknown"
 
-    def _is_signal_finding(self, finding: Finding, measurements_by_id: Dict[str, MeasurementValue]) -> bool:
-        provenance = self._linked_provenance(finding, measurements_by_id)
-        return any(p.source_type.value == "signal" for p in provenance)
-
-    def _has_space_provenance(self, finding: Finding, measurements_by_id: Dict[str, MeasurementValue]) -> bool:
-        provenance = self._linked_provenance(finding, measurements_by_id)
-        return any(p.space.channels or p.space.region or p.space.laterality for p in provenance)
-
-    def _linked_provenance(self, finding: Finding, measurements_by_id: Dict[str, MeasurementValue]):
-        records = [measurements_by_id[mid].provenance for mid in finding.measurement_ids if mid in measurements_by_id]
-        return records or list(finding.provenance)
-
-    def _measurement_ids_for_findings(self, findings: Iterable[Finding]) -> List[str]:
-        ids: List[str] = []
-        for finding in findings:
-            ids.extend(finding.measurement_ids)
-        return sorted(set(ids))
-
     def _measurement_by_name(self, board: EvidenceBoard, name: str) -> MeasurementValue | None:
         for measurement in board.measurements:
             if measurement.measurement_name == name:
                 return measurement
         return None
-
-    def _linked_finding_ids(self, board: EvidenceBoard, measurement_id: str) -> List[str]:
-        return [f.finding_id for f in board.findings if measurement_id in f.measurement_ids]

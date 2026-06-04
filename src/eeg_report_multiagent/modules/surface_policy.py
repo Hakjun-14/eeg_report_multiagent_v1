@@ -2,71 +2,17 @@ from __future__ import annotations
 
 from typing import Any
 
-from eeg_report_multiagent.schemas.finding import Finding
-from eeg_report_multiagent.schemas.measurement import MeasurementValue, StatusSemantic
 from eeg_report_multiagent.schemas.report import AtomicClaimPlan, ClaimSurfaceAction, SurfaceDecision
 from eeg_report_multiagent.schemas.section_contract import SectionRole
-from eeg_report_multiagent.schemas.shared_evidence import ClinicalTarget, EvidenceItem, EvidenceType
 
 
 class SurfacePolicy:
-    """Single report-surface policy for evidence-to-prose decisions.
+    """Single report-surface policy for atomic claim decisions.
 
-    Signal tools may create typed measurements and modules may create findings,
-    but this policy is the boundary that decides whether an item may become
-    clinical prose. Proxy/debug items can still participate in gating and audit
-    artifacts, but not in report text.
+    Measurements and EvidenceItems must be converted into AtomicClaimPlan
+    objects before this boundary. This prevents raw tool output from becoming
+    clinical prose without explicit claim planning.
     """
-
-    DEBUG_ONLY_FINDING_TYPES = {
-        "background_frequency",
-        "background_pdr_support",
-        "background_pdr_topography",
-        "background_pdr_symmetry",
-        "background_ap_organization",
-        "epileptiform_event_candidate_burden",
-        "event_train_duration",
-        "event_laterality",
-        "event_focality_bifrontal_spread",
-        "event_clinical_localization",
-        "event_localization_support",
-        "event_peak_localization",
-        "event_peak_field_support",
-        "event_peak_laterality",
-        "event_morphology_class",
-        "event_morphology_support",
-        "event_field_concentration",
-        "epileptiform_candidate_likelihood",
-        "electrographic_seizure_likelihood",
-        "event_measurement",
-        "background_measurement",
-    }
-
-    DEBUG_ONLY_MEASUREMENT_NAMES = {
-        "event_candidate_score_distribution",
-        "event_candidate_burden_ratio",
-        "event_train_duration_upper_sec",
-        "event_train_duration_distribution_sec",
-        "event_laterality_index",
-        "event_clinical_localization_label",
-        "event_localization_concentration_ratio",
-        "event_peak_localization_label",
-        "event_peak_field_concentration_ratio",
-        "event_peak_laterality_index",
-        "event_bifrontal_ratio",
-        "event_morphology_proxy_class",
-        "event_morphology_proxy_score_distribution",
-        "event_morphology_support_score",
-        "event_field_concentration_ratio",
-        "epileptiform_candidate_likelihood_score",
-        "electrographic_seizure_likelihood_score",
-        "pdr_candidate_confidence_score",
-        "pdr_posterior_anterior_alpha_ratio",
-        "pdr_symmetry_score",
-        "background_ap_organization_score",
-        "slowing_score",
-        "beta_excess_score",
-    }
 
     FORBIDDEN_SURFACE_TERMS = (
         "candidate burden",
@@ -104,20 +50,11 @@ class SurfacePolicy:
 
     def decide(
         self,
-        item: Finding | MeasurementValue | AtomicClaimPlan,
-        *,
-        measurement: MeasurementValue | None = None,
-        missing_evidence: list[str] | None = None,
-        evidence_items: list[EvidenceItem] | None = None,
+        item: AtomicClaimPlan,
     ) -> SurfaceDecision:
-        if isinstance(item, AtomicClaimPlan):
-            return self._decision_from_claim_plan(item)
-        if isinstance(item, MeasurementValue):
-            return self._decision_from_measurement(item)
-        evidence_gate = self._decision_from_evidence_items(evidence_items or [])
-        if evidence_gate is not None:
-            return evidence_gate
-        return self._decision_from_finding(item, measurement=measurement, missing_evidence=missing_evidence or [])
+        if not isinstance(item, AtomicClaimPlan):
+            raise TypeError("SurfacePolicy.decide() requires an AtomicClaimPlan.")
+        return self._decision_from_claim_plan(item)
 
     def _decision_from_claim_plan(self, plan: AtomicClaimPlan) -> SurfaceDecision:
         return SurfaceDecision(
@@ -126,199 +63,8 @@ class SurfacePolicy:
             forbidden_sections=plan.forbidden_sections,
             clinical_phrase_template_id=plan.clinical_phrase_template_id,
             rationale=plan.rationale or "Atomic claim plan already contains a surface decision.",
-            evidence_ids=plan.evidence_ids or plan.linked_finding_ids + plan.linked_measurement_ids,
+            evidence_ids=plan.evidence_ids or plan.linked_measurement_ids,
             debug_payload=plan.debug_payload,
-        )
-
-    def _decision_from_evidence_items(self, evidence_items: list[EvidenceItem]) -> SurfaceDecision | None:
-        if not evidence_items:
-            return None
-        evidence_ids = [item.evidence_id for item in evidence_items]
-        if any(item.evidence_type == EvidenceType.DEBUG for item in evidence_items):
-            return self._decision(
-                ClaimSurfaceAction.DEBUG_ONLY,
-                "debug_evidence_item",
-                "Debug evidence items cannot directly surface as clinical prose.",
-                evidence_ids=evidence_ids,
-                debug_payload={"evidence_ids": evidence_ids},
-            )
-        evidence_types = {item.evidence_type for item in evidence_items}
-        if evidence_types and evidence_types.issubset({EvidenceType.DEBUG}):
-            return self._decision(
-                ClaimSurfaceAction.DEBUG_ONLY,
-                "debug_only_evidence_item",
-                "Debug-only evidence items may support audit/gating but not clinical prose.",
-                evidence_ids=evidence_ids,
-                debug_payload={"evidence_ids": evidence_ids},
-            )
-        if evidence_types and evidence_types.issubset({EvidenceType.PROXY, EvidenceType.DEBUG, EvidenceType.LLM_ASSISTED}):
-            return self._decision(
-                ClaimSurfaceAction.BLOCK,
-                "proxy_or_debug_evidence_item",
-                "Proxy/debug/LLM-assisted evidence items cannot directly surface without calibrated claim gating.",
-                evidence_ids=evidence_ids,
-                debug_payload={"evidence_ids": evidence_ids},
-            )
-        if any(item.clinical_target == ClinicalTarget.SEIZURE_EVIDENCE for item in evidence_items):
-            seizure_items = [item for item in evidence_items if item.clinical_target == ClinicalTarget.SEIZURE_EVIDENCE]
-            if not any(item.evidence_type in {EvidenceType.DIRECT, EvidenceType.METADATA, EvidenceType.DERIVED} for item in seizure_items):
-                return self._decision(
-                    ClaimSurfaceAction.BLOCK,
-                    "no_direct_seizure_evidence",
-                    "A seizure claim requires direct, derived, or metadata seizure-specific evidence.",
-                    evidence_ids=evidence_ids,
-                    debug_payload={"evidence_ids": evidence_ids},
-                )
-        return None
-
-    def _decision_from_measurement(self, measurement: MeasurementValue) -> SurfaceDecision:
-        if measurement.measurement_name in self.DEBUG_ONLY_MEASUREMENT_NAMES or measurement.measurement_name.startswith("relative_bandpower_"):
-            return self._decision(
-                ClaimSurfaceAction.DEBUG_ONLY,
-                "measurement_debug_only",
-                "Measurement is a proxy/debug value and must not directly surface as report prose.",
-                evidence_ids=[measurement.measurement_id],
-                debug_payload={"measurement_name": measurement.measurement_name},
-            )
-        return self._decision(
-            ClaimSurfaceAction.BLOCK,
-            "measurement_needs_finding",
-            "Measurements require an allowed finding/claim plan before report-surface use.",
-            evidence_ids=[measurement.measurement_id],
-            debug_payload={"measurement_name": measurement.measurement_name},
-        )
-
-    def _decision_from_finding(
-        self,
-        finding: Finding,
-        *,
-        measurement: MeasurementValue | None,
-        missing_evidence: list[str],
-    ) -> SurfaceDecision:
-        evidence_ids = [finding.finding_id] + list(finding.measurement_ids)
-        debug_payload: dict[str, Any] = {
-            "finding_type": finding.finding_type,
-            "missing_evidence": missing_evidence,
-        }
-        if measurement is not None:
-            debug_payload["measurement_name"] = measurement.measurement_name
-
-        if finding.assertion == StatusSemantic.UNKNOWN:
-            return self._decision(
-                ClaimSurfaceAction.BLOCK,
-                "unknown_finding",
-                "Unknown findings are retained in evidence artifacts, not clinical prose.",
-                evidence_ids=evidence_ids,
-                debug_payload=debug_payload,
-            )
-
-        if finding.finding_type in self.DEBUG_ONLY_FINDING_TYPES:
-            return self._decision(
-                ClaimSurfaceAction.DEBUG_ONLY,
-                "proxy_or_debug_finding",
-                "Proxy/debug findings may affect gating and provenance but cannot directly surface.",
-                evidence_ids=evidence_ids,
-                debug_payload=debug_payload,
-            )
-
-        if finding.finding_type == "background_pdr_frequency":
-            if finding.assertion != StatusSemantic.PRESENT:
-                return self._decision(
-                    ClaimSurfaceAction.BLOCK,
-                    "pdr_not_supported",
-                    "PDR candidate is not supported strongly enough for surface text.",
-                    evidence_ids=evidence_ids,
-                    debug_payload=debug_payload,
-                )
-            return self._decision(
-                ClaimSurfaceAction.CAVEAT,
-                "background_posterior_alpha_candidate",
-                "Posterior alpha evidence may surface only as a candidate because state/reactivity are incomplete.",
-                allowed=[SectionRole.BACKGROUND, SectionRole.DETAIL, SectionRole.SLEEP],
-                evidence_ids=evidence_ids,
-                debug_payload=debug_payload,
-            )
-
-        if finding.finding_type == "background_amplitude_range":
-            return self._decision(
-                ClaimSurfaceAction.CAVEAT,
-                "background_amplitude_range",
-                "Amplitude may surface as a provenance-linked measurement with scale assumptions.",
-                allowed=[SectionRole.BACKGROUND, SectionRole.DETAIL],
-                evidence_ids=evidence_ids,
-                debug_payload=debug_payload,
-            )
-
-        if finding.finding_type == "background_slowing":
-            if finding.assertion != StatusSemantic.PRESENT:
-                return self._decision(
-                    ClaimSurfaceAction.BLOCK,
-                    "background_slowing_not_surfaceable",
-                    "Absent slowing-screen findings are retained in evidence artifacts.",
-                    evidence_ids=evidence_ids,
-                    debug_payload=debug_payload,
-                )
-            return self._decision(
-                ClaimSurfaceAction.CAVEAT,
-                "background_slowing_assistive",
-                "Slowing evidence is a local screen result and must be caveated.",
-                allowed=[SectionRole.BACKGROUND, SectionRole.DETAIL, SectionRole.IMPRESSION],
-                evidence_ids=evidence_ids,
-                debug_payload=debug_payload,
-            )
-
-        if finding.finding_type == "excess_beta":
-            if finding.assertion != StatusSemantic.PRESENT:
-                return self._decision(
-                    ClaimSurfaceAction.BLOCK,
-                    "background_beta_not_surfaceable",
-                    "Absent beta-screen findings are retained in evidence artifacts.",
-                    evidence_ids=evidence_ids,
-                    debug_payload=debug_payload,
-                )
-            return self._decision(
-                ClaimSurfaceAction.CAVEAT,
-                "background_beta_assistive",
-                "Beta evidence is a local screen result and must be caveated.",
-                allowed=[SectionRole.BACKGROUND, SectionRole.DETAIL, SectionRole.IMPRESSION],
-                evidence_ids=evidence_ids,
-                debug_payload=debug_payload,
-            )
-
-        if finding.finding_type in {"background_reactivity", "sleep_architecture"}:
-            return self._decision(
-                ClaimSurfaceAction.ALLOW,
-                finding.finding_type,
-                "Status finding may surface when the status is explicitly structured and non-unknown.",
-                allowed=[SectionRole.BACKGROUND, SectionRole.DETAIL, SectionRole.SLEEP],
-                evidence_ids=evidence_ids,
-                debug_payload=debug_payload,
-            )
-
-        if finding.finding_type.startswith("protocol_"):
-            if finding.assertion == StatusSemantic.UNKNOWN:
-                return self._decision(
-                    ClaimSurfaceAction.BLOCK,
-                    "unknown_protocol_status",
-                    "Unknown protocol/status findings should not surface.",
-                    evidence_ids=evidence_ids,
-                    debug_payload=debug_payload,
-                )
-            return self._decision(
-                ClaimSurfaceAction.ALLOW,
-                "protocol_status",
-                "Structured metadata/status findings may surface.",
-                allowed=[SectionRole.DETAIL, SectionRole.BACKGROUND, SectionRole.SLEEP, SectionRole.OTHER],
-                evidence_ids=evidence_ids,
-                debug_payload=debug_payload,
-            )
-
-        return self._decision(
-            ClaimSurfaceAction.BLOCK,
-            "unmapped_finding_type",
-            "Finding type is not mapped to a safe report-surface template.",
-            evidence_ids=evidence_ids,
-            debug_payload=debug_payload,
         )
 
     def _decision(

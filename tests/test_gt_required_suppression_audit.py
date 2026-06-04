@@ -24,7 +24,6 @@ def _evidence_item(**kwargs) -> EvidenceItem:
         reportability=ClaimSurfaceAction.BLOCK,
         allowed_sections=["background"],
         measurement_ids=[],
-        finding_ids=[],
         created_by="test",
     )
     defaults.update(kwargs)
@@ -70,7 +69,7 @@ def test_candidate_burden_does_not_match_gt_spike_wave() -> None:
         rationale="candidate burden only",
     )
     # Bypass file extraction to directly verify the matcher behavior.
-    match = GTRequiredSuppressionAuditor().match_claim(claim, [], [], [evidence], [], {})
+    match = GTRequiredSuppressionAuditor().match_claim(claim, [], [evidence], [], {})
     assert match.match_stage == "no_measurement"
     assert match.salvageability == "detector_gap"
 
@@ -102,7 +101,7 @@ def test_pdr_boundary_0_5_hz_is_not_safe_match() -> None:
         evidence_ids=["ev_boundary_frequency"],
         surface_action=ClaimSurfaceAction.BLOCK,
     )
-    match = GTRequiredSuppressionAuditor().match_claim(claim, [], [], [evidence], [plan], {})
+    match = GTRequiredSuppressionAuditor().match_claim(claim, [], [evidence], [plan], {})
     assert match.match_stage == "no_measurement"
     assert match.category == "gt_required_but_missing_from_evidence_extraction"
     assert match.salvageability == "detector_gap"
@@ -135,7 +134,7 @@ def test_upstream_blocked_gt_pdr_is_surface_policy_gap() -> None:
         evidence_ids=["ev_pdr_candidate"],
         surface_action=ClaimSurfaceAction.BLOCK,
     )
-    match = GTRequiredSuppressionAuditor().match_claim(claim, [], [], [evidence], [plan], {})
+    match = GTRequiredSuppressionAuditor().match_claim(claim, [], [evidence], [plan], {})
     assert match.match_stage == "atomic_claim"
     assert match.category == "gt_required_but_surfacepolicy_blocked"
     assert match.salvageability == "caveat_candidate"

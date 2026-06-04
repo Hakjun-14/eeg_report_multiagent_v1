@@ -33,7 +33,7 @@ class MeasurementProvenance(BaseModel):
 
 class ClaimProvenance(BaseModel):
     claim_id: Optional[str] = None
-    supports_finding_id: Optional[str] = None
+    supports_evidence_id: Optional[str] = None
 
 
 class ProvenanceRecord(BaseModel):

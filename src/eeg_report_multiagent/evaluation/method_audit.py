@@ -42,39 +42,6 @@ def _as_list(payload: Any, key: Optional[str] = None) -> List[Dict[str, Any]]:
     return []
 
 
-def _source_types(provenance: Iterable[Dict[str, Any]]) -> set[str]:
-    out: set[str] = set()
-    for prov in provenance:
-        source_type = prov.get("source_type")
-        if isinstance(source_type, str):
-            out.add(source_type)
-    return out
-
-
-def _has_time_provenance(provenance: Iterable[Dict[str, Any]]) -> bool:
-    for prov in provenance:
-        time = prov.get("time") or {}
-        if time.get("window_indices") or time.get("start_sec") is not None or time.get("end_sec") is not None:
-            return True
-    return False
-
-
-def _has_space_provenance(provenance: Iterable[Dict[str, Any]]) -> bool:
-    for prov in provenance:
-        space = prov.get("space") or {}
-        if space.get("channels") or space.get("region") or space.get("laterality"):
-            return True
-    return False
-
-
-def _has_measurement_provenance(provenance: Iterable[Dict[str, Any]]) -> bool:
-    for prov in provenance:
-        measurement = prov.get("measurement") or {}
-        if measurement.get("tool_name") or measurement.get("function_name") or measurement.get("measurement_ids"):
-            return True
-    return False
-
-
 def _count_by(items: Iterable[Dict[str, Any]], field: str) -> Dict[str, int]:
     return dict(Counter(str(item.get(field, "<missing>")) for item in items))
 
@@ -97,44 +64,7 @@ def _audit_input_contract(study_context: Dict[str, Any], trace: Dict[str, Any]) 
     }
 
 
-def _audit_provenance(findings: List[Dict[str, Any]]) -> Dict[str, Any]:
-    signal_findings = []
-    for finding in findings:
-        provenance = _as_list(finding.get("provenance"))
-        if "signal" in _source_types(provenance) or str(finding.get("source_module", "")).startswith(("background", "event")):
-            signal_findings.append(finding)
-
-    missing_time: List[str] = []
-    missing_space: List[str] = []
-    missing_measurement: List[str] = []
-    no_provenance: List[str] = []
-    for finding in signal_findings:
-        fid = str(finding.get("finding_id", "<missing>"))
-        provenance = _as_list(finding.get("provenance"))
-        if not provenance:
-            no_provenance.append(fid)
-            continue
-        if not _has_time_provenance(provenance):
-            missing_time.append(fid)
-        if not _has_space_provenance(provenance):
-            missing_space.append(fid)
-        if not _has_measurement_provenance(provenance):
-            missing_measurement.append(fid)
-
-    denom = max(len(signal_findings), 1)
-    complete = len(signal_findings) - len(set(no_provenance + missing_time + missing_space + missing_measurement))
-    return {
-        "signal_finding_count": len(signal_findings),
-        "complete_signal_finding_count": complete,
-        "complete_signal_finding_fraction": complete / denom,
-        "missing_time_finding_ids": missing_time,
-        "missing_space_finding_ids": missing_space,
-        "missing_measurement_finding_ids": missing_measurement,
-        "no_provenance_finding_ids": no_provenance,
-    }
-
-
-def _audit_weak_measurements(measurements: List[Dict[str, Any]], findings: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+def _audit_weak_measurements(measurements: List[Dict[str, Any]]) -> List[Dict[str, str]]:
     flags: List[Dict[str, str]] = []
     for measurement in measurements:
         name = str(measurement.get("measurement_name", ""))
@@ -166,16 +96,6 @@ def _audit_weak_measurements(measurements: List[Dict[str, Any]], findings: List[
                     "reason": "Score measurement has no exact numeric value.",
                 }
             )
-
-    unknown_findings = [f for f in findings if str(f.get("assertion")) == "unknown"]
-    if unknown_findings:
-        flags.append(
-            {
-                "severity": "info",
-                "measurement_id": "<finding-level>",
-                "reason": f"{len(unknown_findings)} finding(s) have unknown assertion; this is acceptable for unavailable context but should be tracked.",
-            }
-        )
     return flags
 
 
@@ -185,24 +105,29 @@ def audit_artifact_dir(artifact_dir: Path) -> Dict[str, Any]:
     manifest = _read_json(artifact_dir / "manifest.json", {})
     scout = _read_json(artifact_dir / "scout_summary.json", {})
     evidence_board = _read_json(artifact_dir / "evidence_board.json", {})
-    background_findings = _read_json(artifact_dir / "background_findings.json", [])
-    event_findings = _read_json(artifact_dir / "event_findings.json", [])
-    parser_findings = _read_json(artifact_dir / "parsed_context.json", [])
+    background_measurements_file = _read_json(artifact_dir / "background_measurements.json", [])
+    event_measurements_file = _read_json(artifact_dir / "event_measurements.json", [])
+    parser_measurements_file = _read_json(artifact_dir / "parsed_context.json", [])
+    shared_evidence_board = _read_json(artifact_dir / "shared_evidence_board.json", {})
     verification = _read_json(artifact_dir / "verification.json", [])
     run_log = _read_text(artifact_dir / "run.log")
     detail = _read_text(artifact_dir / "detail.txt")
     impression = _read_text(artifact_dir / "impression.txt")
 
     measurements = _as_list(evidence_board, "measurements")
-    board_findings = _as_list(evidence_board, "findings")
     board_claims = _as_list(evidence_board, "claims")
     tool_invocations = _as_list(evidence_board, "tool_invocations")
     deliberations = _as_list(evidence_board, "deliberations")
+    shared_evidence_items = _as_list(shared_evidence_board, "evidence_items")
+    if not shared_evidence_items and isinstance(evidence_board, dict):
+        shared_evidence_items = _as_list(evidence_board.get("shared_evidence_board"), "evidence_items")
     verification_records = _as_list(verification)
     if not verification_records:
         verification_records = _as_list(trace.get("verification") if isinstance(trace, dict) else None)
 
-    all_findings = board_findings or (_as_list(background_findings) + _as_list(event_findings) + _as_list(parser_findings))
+    all_measurements = measurements or (
+        _as_list(background_measurements_file) + _as_list(event_measurements_file) + _as_list(parser_measurements_file)
+    )
     windows = _as_list(manifest, "windows")
 
     audit = {
@@ -216,8 +141,8 @@ def audit_artifact_dir(artifact_dir: Path) -> Dict[str, Any]:
         },
         "scout_summary": scout,
         "counts": {
-            "measurements": len(measurements),
-            "findings": len(all_findings),
+            "measurements": len(all_measurements),
+            "shared_evidence_items": len(shared_evidence_items),
             "claims": len(board_claims),
             "tool_invocations": len(tool_invocations),
             "agent_deliberations": len(deliberations),
@@ -225,17 +150,14 @@ def audit_artifact_dir(artifact_dir: Path) -> Dict[str, Any]:
             "missing_slot_records": sum(len(_as_list(d, "missing_slots")) for d in deliberations),
             "do_not_claim_records": sum(len(_as_list(d, "do_not_claim")) for d in deliberations),
             "claim_constraint_records": sum(len(_as_list(d, "claim_constraints")) for d in deliberations),
-            "background_findings_file": len(_as_list(background_findings)),
-            "event_findings_file": len(_as_list(event_findings)),
-            "parser_findings_file": len(_as_list(parser_findings)),
+            "background_measurements_file": len(_as_list(background_measurements_file)),
+            "event_measurements_file": len(_as_list(event_measurements_file)),
+            "parser_measurements_file": len(_as_list(parser_measurements_file)),
             "verification_records": len(verification_records),
         },
-        "finding_assertions": _count_by(all_findings, "assertion"),
-        "finding_types": _count_by(all_findings, "finding_type"),
         "tool_invocation_status": _count_by(tool_invocations, "status"),
         "claim_support": _count_by(verification_records, "support_label"),
-        "provenance": _audit_provenance(all_findings),
-        "weak_measurement_flags": _audit_weak_measurements(measurements, all_findings),
+        "weak_measurement_flags": _audit_weak_measurements(all_measurements),
         "report_text_summary": {
             "detail_chars": len(detail),
             "impression_chars": len(impression),
@@ -248,7 +170,10 @@ def audit_artifact_dir(artifact_dir: Path) -> Dict[str, Any]:
         audit["input_contract"]["pass"]
         and audit["manifest_summary"]["window_count"] > 0
         and audit["counts"]["measurements"] > 0
-        and audit["counts"]["findings"] > 0
+        and (
+            audit["counts"]["shared_evidence_items"] > 0
+            or audit["counts"]["claims"] > 0
+        )
         and audit["report_text_summary"]["detail_nonempty"]
     )
     return audit
@@ -277,14 +202,6 @@ def render_audit_markdown(audit: Dict[str, Any]) -> str:
     )
     for key, value in audit.get("counts", {}).items():
         lines.append(f"- {key}: `{value}`")
-    lines.extend(["", "## Provenance"])
-    provenance = audit.get("provenance", {})
-    for key in [
-        "signal_finding_count",
-        "complete_signal_finding_count",
-        "complete_signal_finding_fraction",
-    ]:
-        lines.append(f"- {key}: `{provenance.get(key)}`")
     lines.extend(["", "## Weak Measurement Flags"])
     flags = audit.get("weak_measurement_flags", [])
     if flags:

@@ -97,7 +97,6 @@ def build_graph(include_optional_verifier: bool = True, node_callback: NodeCallb
     graph.add_node("protocol_parser", _maybe_monitored("protocol_parser", nodes.protocol_parser_node, node_callback))
     graph.add_node("evidence_merge", _maybe_monitored("evidence_merge", nodes.evidence_merge_node, node_callback))
     graph.add_node("evidence_review", _maybe_monitored("evidence_review", nodes.evidence_review_node, node_callback))
-    graph.add_node("finding_proposal", _maybe_monitored("finding_proposal", nodes.finding_proposal_node, node_callback))
     graph.add_node("report_synthesize", _maybe_monitored("report_synthesize", nodes.report_synthesize_node, node_callback))
     graph.add_node("optional_verify", _maybe_monitored("optional_verify", nodes.optional_verify_node, node_callback))
     graph.add_node("finalize", _maybe_monitored("finalize", nodes.finalize_node, node_callback))
@@ -109,8 +108,7 @@ def build_graph(include_optional_verifier: bool = True, node_callback: NodeCallb
     graph.add_edge("event_module", "protocol_parser")
     graph.add_edge("protocol_parser", "evidence_merge")
     graph.add_edge("evidence_merge", "evidence_review")
-    graph.add_edge("evidence_review", "finding_proposal")
-    graph.add_edge("finding_proposal", "report_synthesize")
+    graph.add_edge("evidence_review", "report_synthesize")
 
     if include_optional_verifier:
         graph.add_edge("report_synthesize", "optional_verify")
@@ -163,7 +161,6 @@ def run_pipeline(
         ("protocol_parser", nodes.protocol_parser_node),
         ("evidence_merge", nodes.evidence_merge_node),
         ("evidence_review", nodes.evidence_review_node),
-        ("finding_proposal", nodes.finding_proposal_node),
         ("report_synthesize", nodes.report_synthesize_node),
         ("optional_verify", nodes.optional_verify_node),
         ("finalize", nodes.finalize_node),

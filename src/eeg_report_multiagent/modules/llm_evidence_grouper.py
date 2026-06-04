@@ -107,7 +107,6 @@ class LLMEvidenceGrouper:
                 time_provenance=self._time_provenance(linked_measurements),
                 space_provenance=self._space_provenance(linked_measurements),
                 measurement_ids=linked_ids,
-                finding_ids=[],
                 reportability=action,
                 allowed_sections=[section for section in group.get("allowed_sections", []) if section in {role.value for role in SectionRole}],
                 rationale=None,

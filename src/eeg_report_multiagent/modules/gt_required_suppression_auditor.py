@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from eeg_report_multiagent.schemas.evidence import EvidenceBoard
-from eeg_report_multiagent.schemas.finding import Finding
 from eeg_report_multiagent.schemas.gt_suppression import GTAtomicClaim, GTClaimPipelineMatch, GTSuppressionAggregate, GTSuppressionAuditResult
 from eeg_report_multiagent.schemas.measurement import MeasurementValue
 from eeg_report_multiagent.schemas.report import AtomicClaimPlan, ClaimSurfaceAction
@@ -186,7 +185,6 @@ class GTRequiredSuppressionAuditor:
             self.match_claim(
                 claim,
                 evidence_board.measurements,
-                evidence_board.findings,
                 shared_evidence_board.evidence_items,
                 atomic_claims,
                 final_report,
@@ -214,18 +212,15 @@ class GTRequiredSuppressionAuditor:
         self,
         claim: GTAtomicClaim,
         measurements: Sequence[MeasurementValue],
-        findings: Sequence[Finding],
         evidence_items: Sequence[EvidenceItem],
         atomic_claims: Sequence[AtomicClaimPlan],
         final_report: Mapping[str, str],
     ) -> GTClaimPipelineMatch:
         measurement_hits = [m for m in measurements if self._measurement_matches(claim, m)]
-        finding_hits = [f for f in findings if self._finding_matches(claim, f)]
-        evidence_hits = [e for e in evidence_items if self._evidence_matches(claim, e, measurement_hits, finding_hits)]
+        evidence_hits = [e for e in evidence_items if self._evidence_matches(claim, e, measurement_hits)]
         evidence_ids = {e.evidence_id for e in evidence_hits}
         measurement_ids = {m.measurement_id for m in measurement_hits}
-        finding_ids = {f.finding_id for f in finding_hits}
-        claim_hits = [c for c in atomic_claims if self._atomic_claim_matches(claim, c, evidence_ids, measurement_ids, finding_ids)]
+        claim_hits = [c for c in atomic_claims if self._atomic_claim_matches(claim, c, evidence_ids, measurement_ids)]
         surfaced_sentence = self._surface_sentence(claim, final_report)
 
         if surfaced_sentence:
@@ -240,7 +235,7 @@ class GTRequiredSuppressionAuditor:
             match_stage = "evidence_item"
             suppression_stage = "atomic_claim_not_generated"
             category = "gt_required_but_no_atomic_claim_generated"
-        elif measurement_hits or finding_hits:
+        elif measurement_hits:
             match_stage = "measurement_only"
             suppression_stage = "not_converted_to_evidence_item"
             category = "gt_required_but_not_converted_to_evidence_item"
@@ -254,7 +249,6 @@ class GTRequiredSuppressionAuditor:
             gt_claim_id=claim.gt_claim_id,
             case_id=claim.case_id,
             matched_measurement_ids=[m.measurement_id for m in measurement_hits],
-            matched_finding_ids=[f.finding_id for f in finding_hits],
             matched_evidence_ids=[e.evidence_id for e in evidence_hits],
             matched_atomic_claim_ids=[c.plan_id for c in claim_hits],
             surfaced_sentence=surfaced_sentence,
@@ -269,7 +263,7 @@ class GTRequiredSuppressionAuditor:
     def aggregate(self, audits: Sequence[GTSuppressionAuditResult], variant: str) -> GTSuppressionAggregate:
         matches = [match for audit in audits for match in audit.gt_claim_matches]
         total = len(matches) or 1
-        measurement = sum(1 for m in matches if m.matched_measurement_ids or m.matched_finding_ids)
+        measurement = sum(1 for m in matches if m.matched_measurement_ids)
         evidence = sum(1 for m in matches if m.matched_evidence_ids)
         atomic = sum(1 for m in matches if m.matched_atomic_claim_ids)
         surfaced = sum(1 for m in matches if m.match_stage == "surfaced")
@@ -328,32 +322,13 @@ class GTRequiredSuppressionAuditor:
             return True
         return False
 
-    def _finding_matches(self, claim: GTAtomicClaim, finding: Finding) -> bool:
-        text = _norm(" ".join([finding.finding_id, finding.finding_type, finding.summary_label or "", " ".join(finding.tags)]))
-        identity = _norm(" ".join([finding.finding_id, finding.finding_type, finding.summary_label or ""]))
-        if claim.claim_type == "event_amplitude":
-            return "event_amplitude" in text
-        if _claim_is_seizure_absent(claim):
-            return "seizure" in text and any(key in text for key in ("label", "specific", "absence", "absent", "none"))
-        if claim.claim_type.startswith("epileptiform") and any(bad in text for bad in ("candidate_burden", "burden", "support_score", "likelihood")):
-            return False
-        if claim.claim_type.startswith("localization") or claim.claim_type in {"electrode_maxima", "field"}:
-            if not any(key in identity for key in ("localization", "laterality", "field", "electrode", "maxima", "peak")):
-                return False
-            if any(bad in text for bad in ("ratio", "index", "concentration")):
-                return False
-        return _target_keywords(claim.claim_type, text)
-
     def _evidence_matches(
         self,
         claim: GTAtomicClaim,
         evidence: EvidenceItem,
         measurement_hits: Sequence[MeasurementValue],
-        finding_hits: Sequence[Finding],
     ) -> bool:
         if any(mid in evidence.measurement_ids for mid in [m.measurement_id for m in measurement_hits]):
-            return True
-        if any(fid in evidence.finding_ids for fid in [f.finding_id for f in finding_hits]):
             return True
         target = str(getattr(evidence.clinical_target, "value", evidence.clinical_target))
         text = _norm(" ".join([evidence.evidence_id, evidence.source_module, target, str(evidence.value), str(evidence.normalized_value), str(evidence.space_provenance), str(evidence.debug_payload)]))
@@ -394,13 +369,10 @@ class GTRequiredSuppressionAuditor:
         atomic_claim: AtomicClaimPlan,
         evidence_ids: set[str],
         measurement_ids: set[str],
-        finding_ids: set[str],
     ) -> bool:
         if evidence_ids and any(eid in atomic_claim.evidence_ids for eid in evidence_ids):
             return True
         if measurement_ids and any(mid in atomic_claim.linked_measurement_ids for mid in measurement_ids):
-            return True
-        if finding_ids and any(fid in atomic_claim.linked_finding_ids for fid in finding_ids):
             return True
         text = _norm(" ".join([atomic_claim.plan_id, atomic_claim.claim_type, atomic_claim.proposed_text, atomic_claim.rationale or ""]))
         if _claim_is_pdr(claim):
@@ -498,9 +470,9 @@ class GTRequiredSuppressionAuditor:
         if surfaced_sentence:
             return "surfaced in final prose"
         if match_stage == "no_measurement":
-            return "no matching safe Measurement/Finding was found for this GT claim"
+            return "no matching safe Measurement was found for this GT claim"
         if match_stage == "measurement_only":
-            return "matching Measurement/Finding did not become an EvidenceItem"
+            return "matching Measurement did not become an EvidenceItem"
         if match_stage == "evidence_item":
             return "matching EvidenceItem did not produce an AtomicClaimPlan"
         actions = Counter(str(getattr(c.surface_action, "value", c.surface_action)) for c in atomic_claims)
@@ -534,9 +506,9 @@ class GTRequiredSuppressionAuditor:
         counts = Counter(match.suppression_stage for match in matches)
         recs: list[str] = []
         if counts.get("none", 0) and any(match.match_stage == "no_measurement" for match in matches):
-            recs.append("Stage 3A: improve extraction for GT claims with no safe Measurement/Finding.")
+            recs.append("Stage 3A: improve extraction for GT claims with no safe Measurement.")
         if counts.get("not_converted_to_evidence_item", 0):
-            recs.append("Stage 3B: repair Measurement/Finding to EvidenceItem conversion for GT claims.")
+            recs.append("Stage 3B: repair Measurement to EvidenceItem conversion for GT claims.")
         if counts.get("atomic_claim_not_generated", 0):
             recs.append("Stage 3D: refine claim planner for GT-matched EvidenceItems.")
         if counts.get("atomic_claim_blocked", 0) or counts.get("surface_policy_rejected", 0) or counts.get("reportability_blocked", 0):
@@ -747,7 +719,7 @@ def _stage3_recommendation(metrics: Mapping[str, float]) -> str:
     if metrics.get("DetectorGapRate", 0.0) >= 0.45:
         return "Stage 3A: evidence extraction improvement is needed before broad reportability calibration."
     if metrics.get("AdapterGapRate", 0.0) >= 0.20:
-        return "Stage 3B: repair Measurement/Finding to EvidenceItem conversion."
+        return "Stage 3B: repair Measurement to EvidenceItem conversion."
     if metrics.get("ClaimPlannerGapRate", 0.0) >= 0.20:
         return "Stage 3D: refine AtomicClaimPlan generation for GT-matched EvidenceItems."
     if metrics.get("SurfacePolicyGapRate", 0.0) >= 0.20:

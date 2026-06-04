@@ -93,7 +93,6 @@ class LLMClaimPlanner:
                     claim_type=str(claim.get("claim_type") or "llm_planned_claim"),
                     proposed_text=proposed_text,
                     evidence_ids=evidence_ids,
-                    linked_finding_ids=[],
                     linked_measurement_ids=linked_measurement_ids,
                     required_evidence=[str(x) for x in claim.get("required_evidence", [])],
                     missing_evidence=[str(x) for x in claim.get("missing_evidence", [])],
@@ -153,7 +152,7 @@ class LLMClaimPlanner:
                 hi = amp["upper"]
                 return f"A provenance-linked background amplitude range is available ({float(lo):g}-{float(hi):.2f} uV)."
         if ClinicalTarget.BACKGROUND_SLOWING.value in targets:
-            return "Structured evidence suggests possible background slowing; this remains an assistive finding pending EEG review."
+            return "Structured evidence suggests possible background slowing; this remains an assistive observation pending EEG review."
         if ClinicalTarget.STATE.value in targets or ClinicalTarget.PROTOCOL.value in targets:
             return "Structured protocol/context status is available but remains non-specific."
         return ""

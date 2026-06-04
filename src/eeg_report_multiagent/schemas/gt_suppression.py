@@ -22,7 +22,6 @@ class GTClaimPipelineMatch(BaseModel):
     gt_claim_id: str
     case_id: str
     matched_measurement_ids: List[str] = Field(default_factory=list)
-    matched_finding_ids: List[str] = Field(default_factory=list)
     matched_evidence_ids: List[str] = Field(default_factory=list)
     matched_atomic_claim_ids: List[str] = Field(default_factory=list)
     surfaced_sentence: Optional[str] = None

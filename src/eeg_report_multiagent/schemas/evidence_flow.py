@@ -10,10 +10,8 @@ class SlotFlowRecord(BaseModel):
     section_name: str
     clinical_slot: str
     measurement_exists: bool = False
-    finding_exists: bool = False
     evidence_item_exists: bool = False
     measurement_ids: List[str] = Field(default_factory=list)
-    finding_ids: List[str] = Field(default_factory=list)
     evidence_ids: List[str] = Field(default_factory=list)
     evidence_type_counts: Dict[str, int] = Field(default_factory=dict)
     reportability_counts: Dict[str, int] = Field(default_factory=dict)

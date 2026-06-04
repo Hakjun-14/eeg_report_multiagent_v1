@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 from eeg_report_multiagent.modules.final_prose_auditor import FinalProseAuditor
-from eeg_report_multiagent.modules.report_synthesizer import ReportSynthesizer
-from eeg_report_multiagent.schemas import EvidenceBoard, Finding, MeasurementValue, QuantitationValue
+from eeg_report_multiagent.schemas import MeasurementValue, QuantitationValue
 from eeg_report_multiagent.schemas.final_prose_audit import NumericMatchStatus
-from eeg_report_multiagent.schemas.measurement import QuantitationKind, StatusSemantic
+from eeg_report_multiagent.schemas.measurement import QuantitationKind
 from eeg_report_multiagent.schemas.provenance import MeasurementProvenance, ProvenanceRecord, SourceType, SpaceProvenance, TimeProvenance
 from eeg_report_multiagent.schemas.report import AtomicClaimPlan, ClaimSurfaceAction, ReportSectionType
 from eeg_report_multiagent.schemas.section_contract import SectionRole
@@ -36,18 +35,6 @@ def _range(mid: str, name: str, lower: float, upper: float, unit: str, prov: Pro
         measurement_name=name,
         quantitation=QuantitationValue(kind=QuantitationKind.RANGE, lower=lower, upper=upper, unit=unit),
         provenance=prov or _prov(),
-    )
-
-
-def _finding(fid: str, ftype: str, measurement: MeasurementValue) -> Finding:
-    return Finding(
-        finding_id=fid,
-        finding_type=ftype,
-        assertion=StatusSemantic.PRESENT,
-        measurement_ids=[measurement.measurement_id],
-        quantitation=measurement.quantitation,
-        provenance=[measurement.provenance],
-        source_module="background_module",
     )
 
 
@@ -168,7 +155,7 @@ def test_claim_surface_matching_allowed_debug_and_missing_evidence() -> None:
         plan_id="p_allowed",
         section_type=ReportSectionType.DETAIL,
         claim_type="background_slowing",
-        proposed_text="Structured evidence suggests background slowing; this remains an assistive finding pending EEG review.",
+        proposed_text="Structured evidence suggests background slowing; this remains an assistive observation pending EEG review.",
         evidence_ids=["ev_slow"],
         surface_action=ClaimSurfaceAction.CAVEAT,
     )

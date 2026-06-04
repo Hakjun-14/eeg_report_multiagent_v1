@@ -41,7 +41,7 @@ Mitigation:
 Mitigation:
 - Distinguish `reported-provenance consistency` from `patient-specific signal provenance`.
 - If only GT and generated text are available, do not claim signal verification.
-- If EvidenceBoard artifacts are available, evaluate claim support against measurement/finding provenance.
+- If EvidenceBoard artifacts are available, evaluate claim support against measurement/evidence provenance.
 
 ## Evaluation Modes
 
@@ -99,7 +99,7 @@ Output:
 - `unsupported`: claim lacks support from reference or available evidence.
 - `contradicted`: claim conflicts with reference or available evidence.
 - `under_specified`: directionally plausible but lacks required frequency, amplitude, state, localization, morphology, or protocol details.
-- `over_cautious_false_negative`: model avoids a clinically important reference finding by downgrading to vague candidate language.
+- `over_cautious_false_negative`: model avoids a clinically important reference observation by downgrading to vague candidate language.
 - `section_contaminated`: claim appears in the wrong section or mixes section semantics.
 - `debug_leakage`: internal scores/proxy values appear in clinical prose.
 - `possible_leakage_or_memorization`: generated output nearly copies reference text or preserves unusual masked tokens/formatting.

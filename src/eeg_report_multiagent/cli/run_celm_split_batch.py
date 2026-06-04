@@ -35,7 +35,6 @@ def _write_csv(path: Path, rows: List[Dict[str, Any]]) -> None:
         "llm_review_status",
         "llm_model_name",
         "measurements",
-        "findings",
         "claims",
         "weak_evidence_records",
         "missing_slot_records",
@@ -47,8 +46,6 @@ def _write_csv(path: Path, rows: List[Dict[str, Any]]) -> None:
         "section_missing_required_slots",
         "unsafe_candidate_routes",
         "all_target_sections_generated",
-        "llm_finding_proposal_status",
-        "llm_finding_proposals",
         "llm_evidence_grouping_status",
         "llm_evidence_groups",
         "llm_claim_planning_status",
@@ -99,7 +96,6 @@ def _summarize_success(row_index: int, row: Dict[str, str], artifact_dir: Path, 
     counts = audit.get("counts", {}) if isinstance(audit.get("counts"), dict) else {}
     input_contract = audit.get("input_contract", {}) if isinstance(audit.get("input_contract"), dict) else {}
     section_audit = _load_json(artifact_dir / "section_contract_audit.json")
-    proposal_payload = _load_json(artifact_dir / "llm_finding_proposals.json")
     grouping_payload = _load_json(artifact_dir / "llm_evidence_grouping.json")
     grouping_result = grouping_payload.get("raw_result", {}) if isinstance(grouping_payload.get("raw_result"), dict) else {}
     claim_payload = _load_json(artifact_dir / "llm_claim_planning.json")
@@ -115,7 +111,6 @@ def _summarize_success(row_index: int, row: Dict[str, str], artifact_dir: Path, 
         "llm_review_status": first_delib.get("status", ""),
         "llm_model_name": first_delib.get("model_name", ""),
         "measurements": counts.get("measurements", ""),
-        "findings": counts.get("findings", ""),
         "claims": counts.get("claims", ""),
         "weak_evidence_records": counts.get("weak_evidence_records", ""),
         "missing_slot_records": counts.get("missing_slot_records", ""),
@@ -127,8 +122,6 @@ def _summarize_success(row_index: int, row: Dict[str, str], artifact_dir: Path, 
         "section_missing_required_slots": section_audit.get("missing_required_slot_count", ""),
         "unsafe_candidate_routes": section_audit.get("unsafe_candidate_route_count", ""),
         "all_target_sections_generated": section_audit.get("all_target_sections_generated", ""),
-        "llm_finding_proposal_status": proposal_payload.get("status", ""),
-        "llm_finding_proposals": len(proposal_payload.get("finding_proposals", []) or []),
         "llm_evidence_grouping_status": grouping_payload.get("status", ""),
         "llm_evidence_groups": len(grouping_result.get("evidence_groups", []) or []),
         "llm_claim_planning_status": claim_payload.get("status", ""),
@@ -153,7 +146,6 @@ def main() -> None:
     parser.add_argument("--enable-llm-review", action="store_true")
     parser.add_argument("--enable-llm-evidence-grouping", action="store_true")
     parser.add_argument("--enable-llm-claim-planning", action="store_true")
-    parser.add_argument("--enable-llm-finding-proposals", action="store_true")
     parser.add_argument("--enable-local-encoder", action="store_true")
     parser.add_argument("--resume", action="store_true", help="Skip rows that already have method_audit.json and celm_generated_report.json")
     parser.add_argument("--stop-on-error", action="store_true")
@@ -205,7 +197,6 @@ def main() -> None:
         "enable_local_encoder": args.enable_local_encoder,
         "enable_llm_evidence_grouping": args.enable_llm_evidence_grouping,
         "enable_llm_claim_planning": args.enable_llm_claim_planning,
-        "enable_llm_finding_proposals": args.enable_llm_finding_proposals,
         "celm_results_dir": str(celm_results_dir),
         "resume": args.resume,
     }
@@ -264,8 +255,6 @@ def main() -> None:
             cmd.append("--enable-llm-claim-planning")
         if args.enable_llm_review:
             cmd.append("--enable-llm-review")
-        if args.enable_llm_finding_proposals:
-            cmd.append("--enable-llm-finding-proposals")
         if args.enable_local_encoder:
             cmd.append("--enable-local-encoder")
 

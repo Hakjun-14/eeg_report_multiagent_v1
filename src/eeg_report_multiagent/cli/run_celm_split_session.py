@@ -53,7 +53,6 @@ def main() -> None:
     parser.add_argument("--enable-llm-evidence-grouping", action="store_true")
     parser.add_argument("--enable-llm-claim-planning", action="store_true")
     parser.add_argument("--enable-llm-review", action="store_true")
-    parser.add_argument("--enable-llm-finding-proposals", action="store_true")
     parser.add_argument("--enable-local-encoder", action="store_true")
     args = parser.parse_args()
 
@@ -99,8 +98,6 @@ def main() -> None:
         cmd.append("--enable-llm-claim-planning")
     if args.enable_llm_review:
         cmd.append("--enable-llm-review")
-    if args.enable_llm_finding_proposals:
-        cmd.append("--enable-llm-finding-proposals")
     if args.enable_local_encoder:
         cmd.append("--enable-local-encoder")
 

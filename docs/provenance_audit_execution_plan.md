@@ -11,7 +11,7 @@ Turn the current GT-vs-generated selected50 artifacts into a defensible clinical
   - row 548: mid CELM / PDR and event-gating diagnostic case
   - row 783: high CELM / possible metric-clinical mismatch or leakage diagnostic case
 - Variant score ledger: `artifacts/experiment_ledgers/S0001_test_CELM_vs_B_vs_D_vs_BQFv2_vs_UpgradeLLMProp_selected50_scores.csv`
-- Structured evidence, when available: per-row `evidence_board.json`, `section_contract_audit.json`, `llm_finding_proposals.json`, and `method_audit.json`
+- Structured evidence, when available: per-row `evidence_board.json`, `section_contract_audit.json`, and `method_audit.json`
 
 ## 2026-05-08 Execution Status
 
@@ -119,7 +119,7 @@ Next command-level targets:
 
 CELM contract check:
 - Public generated reports should preserve the CELM section contract: generate only requested section names, in strict JSON, with section-wise evaluation.
-- Internal ontology, measurements, findings, and atomic claims are allowed as audit artifacts, not as extra public report sections.
+- Internal ontology, measurements, evidence items, and atomic claims are allowed as audit artifacts, not as extra public report sections.
 
 Localization v2:
 - Added `event_peak_topography_localizer`.
