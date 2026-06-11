@@ -500,6 +500,7 @@ class OpenAIReportSynthesisAdapter:
                 "Use only the allowed or caveated atomic_claim_plans in the payload.",
                 "Follow the CELM-style section-description and patient-history formatting example for report style only.",
                 "Use the payload section_descriptions to understand each requested section's expected content.",
+                "For each atomic claim, if surface_value_requirements is non-empty, include at least one listed value in the generated sentence unless it is unknown or unsafe.",
                 "When an atomic claim has reportable_evidence_values or linked_reportable_evidence values, preserve clinically meaningful values and units in the report sentence unless the value is marked unknown or unsafe.",
                 "If proposed_text is generic but linked reportable evidence contains a safe numeric value, rewrite the sentence to include that value with its unit and the same caveat level.",
                 "Do not infer new EEG evidence or clinical claims from general medical knowledge.",

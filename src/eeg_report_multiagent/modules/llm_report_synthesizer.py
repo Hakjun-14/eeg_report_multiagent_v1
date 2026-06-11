@@ -189,13 +189,15 @@ class EvidenceBoardLLMReportSynthesizer:
 
     def _claim_plan_payload(self, plan: AtomicClaimPlan, shared_board: Any) -> Dict[str, Any]:
         linked_reportable_evidence = self._linked_reportable_evidence_payload(plan, shared_board)
+        reportable_evidence_values = self._reportable_evidence_values(linked_reportable_evidence)
         return {
             "plan_id": plan.plan_id,
             "claim_type": plan.claim_type,
             "proposed_text": plan.proposed_text,
             "evidence_ids": plan.evidence_ids,
             "linked_reportable_evidence": linked_reportable_evidence,
-            "reportable_evidence_values": self._reportable_evidence_values(linked_reportable_evidence),
+            "reportable_evidence_values": reportable_evidence_values,
+            "surface_value_requirements": self._surface_value_requirements(reportable_evidence_values),
             "surface_action": plan.surface_action.value,
             "allowed_sections": plan.allowed_sections,
             "clinical_phrase_template_id": plan.clinical_phrase_template_id,
@@ -224,6 +226,31 @@ class EvidenceBoardLLMReportSynthesizer:
                 }
             )
         return out
+
+    def _surface_value_requirements(self, evidence_values: List[Dict[str, Any]]) -> List[str]:
+        """Human-readable safe numeric/status values the report LLM should preserve."""
+        requirements: list[str] = []
+        for item in evidence_values:
+            target = str(item.get("clinical_target") or "")
+            unit = item.get("unit")
+            value = item.get("value")
+            if target == "pdr" and isinstance(value, dict):
+                freq = value.get("frequency_hz")
+                if isinstance(freq, (int, float)):
+                    requirements.append(f"preserve PDR candidate frequency: {float(freq):.1f} {unit or 'Hz'}")
+            elif target == "background_amplitude" and isinstance(value, dict):
+                typical = value.get("background_amplitude_typical_uv")
+                if isinstance(typical, (int, float)) and float(typical) > 0.0:
+                    requirements.append(f"preserve typical background amplitude: {float(typical):.1f} {unit or 'uV'}")
+                    continue
+                amp_range = value.get("background_amplitude_range_uv")
+                if isinstance(amp_range, dict) and amp_range.get("upper") is not None:
+                    lo = amp_range.get("lower", 0.0)
+                    hi = amp_range["upper"]
+                    requirements.append(f"preserve background amplitude range: {float(lo):.1f}-{float(hi):.1f} {unit or 'uV'}")
+            elif isinstance(value, (int, float)) and unit:
+                requirements.append(f"preserve {target} value: {float(value):.1f} {unit}")
+        return requirements
 
     def _linked_reportable_evidence_payload(self, plan: AtomicClaimPlan, shared_board: Any) -> List[Dict[str, Any]]:
         out: List[Dict[str, Any]] = []

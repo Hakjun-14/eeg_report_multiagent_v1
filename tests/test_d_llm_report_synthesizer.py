@@ -126,6 +126,7 @@ def test_d_synthesizer_prefers_supplied_atomic_claim_plan_and_links_evidence_vie
     assert linked[0]["clinical_target"] == "background_amplitude"
     assert linked[0]["value"]["background_amplitude_range_uv"] == {"lower": 70.0, "upper": 90.0}
     assert linked[0]["value"]["background_amplitude_typical_uv"] is None
+    assert payload_claim["surface_value_requirements"] == ["preserve background amplitude range: 70.0-90.0 uV"]
     assert linked[0]["unit"] == "uV"
     assert "debug_payload" not in linked[0]
     assert result.section_texts["EEG DESCRIPTION/DETAILS"].startswith("Structured evidence")
