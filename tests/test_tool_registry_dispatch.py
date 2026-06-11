@@ -36,11 +36,16 @@ def test_background_amplitude_summary_is_clinical_measurement_with_channel_prove
 
     assert rec.status == "ok"
     amp = next(x for x in output if x.measurement_name == "background_amplitude_range_uv")
+    typical = next(x for x in output if x.measurement_name == "background_amplitude_typical_uv")
     assert amp.measurement_role == MeasurementRole.CLINICAL_MEASUREMENT
+    assert typical.measurement_role == MeasurementRole.CLINICAL_MEASUREMENT
     assert amp.quantitation.lower >= 0.0
     assert amp.quantitation.upper >= amp.quantitation.lower
+    assert amp.quantitation.lower <= typical.quantitation.exact <= amp.quantitation.upper
     assert amp.provenance.space.channels == ["O1", "O2"]
+    assert typical.provenance.space.channels == ["O1", "O2"]
     assert amp.metadata["amplitude_estimator"] == "per_window_channel_half_of_p95_minus_p5"
+    assert typical.metadata["reported_value"] == "median_across_selected_window_channel_amplitudes"
 
 
 def test_background_slowing_and_beta_scores_are_bounded_fractions() -> None:

@@ -45,6 +45,7 @@ def infer_measurement_tags(
         "pdr_candidate_frequency_hz",
         "pdr_v2_frequency_hz",
         "background_amplitude_range_uv",
+        "background_amplitude_typical_uv",
     }:
         role = MeasurementRole.CLINICAL_MEASUREMENT
     elif is_categorical:

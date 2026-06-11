@@ -185,13 +185,21 @@ def test_atomic_claim_plan_links_to_shared_evidence_ids_and_validates_missing_li
         quantitation=QuantitationValue(kind=QuantitationKind.RANGE, lower=70.0, upper=90.0, unit="uV"),
         provenance=_prov(),
     )
-    board = EvidenceBoard(session_id="s", measurements=[amp])
+    amp_typical = MeasurementValue(
+        measurement_id="m_amp_typical",
+        measurement_name="background_amplitude_typical_uv",
+        quantitation=QuantitationValue(kind=QuantitationKind.EXACT, exact=80.0, unit="uV"),
+        provenance=_prov(),
+    )
+    amp_typical.measurement_role = MeasurementRole.CLINICAL_MEASUREMENT
+    board = EvidenceBoard(session_id="s", measurements=[amp, amp_typical])
 
     detail, _impression, claims = ReportSynthesizer().synthesize(board)
     plans = ReportSynthesizer().build_atomic_claim_plan(board)
 
     assert plans[0].evidence_ids == ["evgrp_background_amplitude"]
     assert board.ensure_shared_evidence_board().claim_evidence_links["c_p_evgrp_background_amplitude"] == ["evgrp_background_amplitude"]
+    assert board.ensure_shared_evidence_board().get_evidence("evgrp_background_amplitude").value["background_amplitude_typical_uv"] == 80.0
     assert claims
     assert "background amplitude" in detail.text.lower()
     with pytest.raises(ValueError):

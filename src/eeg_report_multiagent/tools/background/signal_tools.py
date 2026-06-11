@@ -598,10 +598,12 @@ def amplitude_summary(
     if valid.size == 0:
         lo = 0.0
         hi = 0.0
+        typical = 0.0
     else:
         lo = float(np.percentile(valid, 25.0))
         hi = float(np.percentile(valid, 75.0))
-    m = make_range_measurement(
+        typical = float(np.median(valid))
+    range_measurement = make_range_measurement(
         measurement_id="m_background_amplitude_range",
         measurement_name="background_amplitude_range_uv",
         lower=lo,
@@ -617,7 +619,7 @@ def amplitude_summary(
             reason=f"{scale_assumption};posterior_preferred_half_peak_to_peak_iqr_artifact_trimmed",
         ),
     )
-    m.metadata.update(
+    range_measurement.metadata.update(
         {
             "scale_assumption": scale_assumption,
             "amplitude_estimator": "per_window_channel_half_of_p95_minus_p5",
@@ -627,7 +629,33 @@ def amplitude_summary(
             "selected_region": region or "all",
         }
     )
-    return [m]
+    typical_measurement = make_exact_measurement(
+        measurement_id="m_background_amplitude_typical",
+        measurement_name="background_amplitude_typical_uv",
+        value=typical,
+        unit=unit,
+        provenance=make_provenance(
+            tool_name="amplitude_summary",
+            function_name="amplitude_summary",
+            source_ref=source_ref,
+            window_indices=range(signal_nct.shape[0]),
+            channels=selected_channels,
+            region=region,
+            reason=f"{scale_assumption};posterior_preferred_half_peak_to_peak_median_artifact_trimmed",
+        ),
+    )
+    typical_measurement.metadata.update(
+        {
+            "scale_assumption": scale_assumption,
+            "amplitude_estimator": "per_window_channel_half_of_p95_minus_p5",
+            "reported_value": "median_across_selected_window_channel_amplitudes",
+            "near_zero_amplitude_rejection_uv": "1.0",
+            "artifact_cap_percentile": "90",
+            "selected_region": region or "all",
+            "paired_range_measurement_id": range_measurement.measurement_id,
+        }
+    )
+    return [range_measurement, typical_measurement]
 
 
 def slowing_score(

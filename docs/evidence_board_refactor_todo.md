@@ -53,4 +53,7 @@ Canonical path:
    - PDR v2.1 now uses stable posterior window/channel alpha peaks instead of one averaged posterior PSD peak.
    - Selected50 PDR check improved from 22/47 to 33/47 within 1 Hz of GT PDR.
    - Artifact: `artifacts/tool_v2_1_pdr_selected50_20260612/pdr_v2_1_summary.md`.
-   - Next targets: amplitude v2.1, then morphology/localization v2.
+   - Amplitude v2.1 preserves the existing traceable range and adds `background_amplitude_typical_uv` for report-suitable exact amplitude.
+   - Selected50 amplitude typical check: 30/39 within 20 uV of GT midpoint, while range overlap remains 28/39.
+   - Artifact: `artifacts/tool_v2_1_amplitude_selected50_20260612/amplitude_v2_1_summary.md`.
+   - Next targets: morphology/localization v2, then report synthesis rendering.

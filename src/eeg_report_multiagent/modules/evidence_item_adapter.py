@@ -80,7 +80,7 @@ def _measurement_group_key(measurement: MeasurementValue) -> str:
         return "pdr"
     if name.startswith("pdr_") or name.startswith("background_ap_organization"):
         return "pdr_support_debug"
-    if name == "background_amplitude_range_uv":
+    if name in {"background_amplitude_range_uv", "background_amplitude_typical_uv"}:
         return "background_amplitude"
     if name in {"background_dominant_frequency_hz", "slowing_score"}:
         return "background_slowing"
@@ -182,8 +182,12 @@ def _group_value(group_key: str, measurements: list[MeasurementValue]) -> Any:
     if group_key == "pdr_support_debug":
         return {measurement.measurement_name: _debug_value(measurement) for measurement in measurements}
     if group_key == "background_amplitude":
-        measurement = by_name.get("background_amplitude_range_uv")
-        return _range_or_value(measurement)
+        range_measurement = by_name.get("background_amplitude_range_uv")
+        typical_measurement = by_name.get("background_amplitude_typical_uv")
+        return {
+            "background_amplitude_range_uv": _range_or_value(range_measurement),
+            "background_amplitude_typical_uv": _numeric(typical_measurement),
+        }
     if group_key in {"background_slowing", "excess_beta"}:
         return {measurement.measurement_name: _range_or_value(measurement) for measurement in measurements}
     if group_key in {"state", "protocol"}:

@@ -234,6 +234,9 @@ class LLMClaimPlanner:
             if isinstance(freq, (int, float)) and 8.0 <= float(freq) <= 13.0:
                 return f"A posterior alpha rhythm candidate is approximately {float(freq):.1f} Hz; state/reactivity confirmation remains incomplete."
         if ClinicalTarget.BACKGROUND_AMPLITUDE.value in targets:
+            typical_amp = self._first_value(evidence_items, "background_amplitude_typical_uv")
+            if isinstance(typical_amp, (int, float)) and float(typical_amp) > 0.0:
+                return f"A provenance-linked typical background amplitude is approximately {float(typical_amp):.1f} uV."
             amp = self._first_value(evidence_items, "background_amplitude_range_uv")
             if isinstance(amp, dict) and amp.get("upper") is not None:
                 lo = amp.get("lower", 0)
