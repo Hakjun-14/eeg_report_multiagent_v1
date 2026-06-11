@@ -347,6 +347,10 @@ class ReportSynthesizer:
         linked_evidence = self._linked_evidence_items(plan, shared_board)
         if any(item.evidence_type == EvidenceType.DEBUG for item in linked_evidence):
             reasons.append("debug_evidence_cannot_surface")
+        if any(self._linked_evidence_is_internal_or_proxy(item) for item in linked_evidence):
+            reasons.append("linked_internal_or_proxy_evidence_cannot_surface")
+        if any(self._linked_evidence_has_boundary_global_frequency(item) for item in linked_evidence):
+            reasons.append("boundary_or_global_frequency_not_reportable")
         if self._looks_like_seizure_claim(plan, text) and not self._has_seizure_specific_evidence(linked_evidence):
             reasons.append("seizure_claim_without_seizure_specific_evidence")
         if decision.surface_action == ClaimSurfaceAction.DEBUG_ONLY:
@@ -377,6 +381,45 @@ class ReportSynthesizer:
 
     def _has_seizure_specific_evidence(self, evidence_items: list) -> bool:
         return any(str(getattr(item.clinical_target, "value", item.clinical_target)) == "seizure_evidence" for item in evidence_items)
+
+    def _linked_evidence_is_internal_or_proxy(self, item: EvidenceItem) -> bool:
+        target = str(getattr(item.clinical_target, "value", item.clinical_target))
+        evidence_type = str(getattr(item.evidence_type, "value", item.evidence_type))
+        text = " ".join(
+            [
+                target,
+                evidence_type,
+                str(item.unit or ""),
+                " ".join(item.measurement_ids),
+                str(item.value),
+                str(item.normalized_value),
+            ]
+        ).lower()
+        if target in {"event_candidate", "epileptiform_morphology", "localization"}:
+            if any(term in text for term in ("candidate", "likelihood", "support", "score", "ratio", "concentration", "localization_label")):
+                return True
+        return any(
+            term in text
+            for term in (
+                "support_score",
+                "likelihood_score",
+                "candidate_score",
+                "candidate_burden",
+                "concentration_ratio",
+                "laterality_index",
+                "bifrontal_ratio",
+                "organization_score",
+                "bandpower",
+                "slowing_score",
+                "beta_excess_score",
+            )
+        ) or str(item.unit or "").lower() in {"score", "ratio"}
+
+    def _linked_evidence_has_boundary_global_frequency(self, item: EvidenceItem) -> bool:
+        text = " ".join([str(item.value), str(item.normalized_value), " ".join(item.measurement_ids)]).lower()
+        if "background_dominant_frequency" not in text:
+            return False
+        return bool(re.search(r"\b0(?:\.0)?\s*[-–]?\s*\.?\s*5\b|\b0\.5\b", text))
 
     def _has_review_constraint(self, board: EvidenceBoard, needle: str) -> bool:
         needle = needle.lower()

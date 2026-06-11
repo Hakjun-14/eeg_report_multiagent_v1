@@ -77,6 +77,7 @@ def build_background_registry() -> ToolRegistry:
     reg = ToolRegistry("background")
     reg.register(_spec("psd_power_spectrum_summary", "Dominant frequency summary", "background"), bg_tools.psd_power_spectrum_summary)
     reg.register(_spec("posterior_dominant_rhythm_candidate", "Posterior alpha/PDR candidate summary", "background"), bg_tools.posterior_dominant_rhythm_candidate)
+    reg.register(_spec("posterior_dominant_rhythm_spectral_v2", "Posterior alpha/PDR candidate using Welch plus spectral parameterization", "background"), bg_tools.posterior_dominant_rhythm_spectral_v2)
     reg.register(_spec("background_organization_proxy", "Anterior-posterior organization proxy", "background"), bg_tools.background_organization_proxy)
     reg.register(_spec("background_unavailable_slot_status", "Nullable background slot status declarations", "background"), bg_tools.background_unavailable_slot_status)
     reg.register(_spec("bandpower_summary", "Relative bandpower summary", "background"), bg_tools.bandpower_summary)

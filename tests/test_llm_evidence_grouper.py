@@ -1,5 +1,5 @@
 from eeg_report_multiagent.modules.llm_evidence_grouper import LLMEvidenceGrouper
-from eeg_report_multiagent.schemas.measurement import MeasurementValue, QuantitationKind, QuantitationValue
+from eeg_report_multiagent.schemas.measurement import MeasurementRole, MeasurementValue, QuantitationKind, QuantitationValue
 from eeg_report_multiagent.schemas.provenance import MeasurementProvenance, ProvenanceRecord, SourceType, SpaceProvenance, TimeProvenance
 from eeg_report_multiagent.schemas.report import ClaimSurfaceAction
 from eeg_report_multiagent.schemas.shared_evidence import ClinicalTarget, EvidenceType
@@ -69,11 +69,21 @@ def _measurement():
 
 def test_llm_evidence_grouper_creates_board_from_measurement_only_payload():
     adapter = FakeGroupingAdapter()
-    result = LLMEvidenceGrouper(adapter=adapter).run(recording_id="s", measurements=[_measurement()])
+    clinical_context = {
+        "patient_history_and_eeg_description": "77 y.o. patient evaluated for altered awareness.",
+        "metadata": {"age": "77", "gender": "Female"},
+        "gt_report_text_included": False,
+    }
+    result = LLMEvidenceGrouper(adapter=adapter).run(
+        recording_id="s",
+        measurements=[_measurement()],
+        clinical_context=clinical_context,
+    )
 
     assert result["status"] == "ok"
     assert result["raw_eeg_used"] is False
     assert result["gt_report_used"] is False
+    assert adapter.payload["clinical_context"] == clinical_context
     board = result["shared_evidence_board"]
     assert len(board.evidence_items) == 1
     item = board.evidence_items[0]
@@ -83,3 +93,131 @@ def test_llm_evidence_grouper_creates_board_from_measurement_only_payload():
     assert item.reportability == ClaimSurfaceAction.CAVEAT
     assert item.measurement_ids == ["m_pdr"]
     assert item.space_provenance["region"] == "occipital"
+
+
+class MixedPdrGroupingAdapter:
+    model = "fake-grouping"
+
+    def group(self, payload):
+        return {
+            "summary": "grouped mixed PDR evidence",
+            "raw_eeg_used": False,
+            "gt_report_used": False,
+            "evidence_groups": [
+                {
+                    "evidence_id": "pdr_mixed_group",
+                    "clinical_target": "pdr",
+                    "evidence_type": "derived",
+                    "linked_measurement_ids": ["m_pdr_candidate", "m_pdr_support", "m_pdr_v2"],
+                    "allowed_sections": ["background", "detail"],
+                    "rationale": "PDR with support measurements.",
+                }
+            ],
+        }
+
+
+def _exact_measurement(
+    measurement_id: str,
+    measurement_name: str,
+    value: float,
+    role: MeasurementRole,
+) -> MeasurementValue:
+    return MeasurementValue(
+        measurement_id=measurement_id,
+        measurement_name=measurement_name,
+        quantitation=QuantitationValue(kind=QuantitationKind.EXACT, exact=value, unit="Hz" if "frequency" in measurement_name else "score"),
+        measurement_role=role,
+        provenance=ProvenanceRecord(
+            source_type=SourceType.SIGNAL,
+            source_ref="s",
+            time=TimeProvenance(window_indices=[1]),
+            space=SpaceProvenance(channels=["O1", "O2"], region="occipital", laterality="bilateral"),
+            measurement=MeasurementProvenance(tool_name="background", function_name="pdr"),
+        ),
+    )
+
+
+def _range_measurement(
+    measurement_id: str,
+    measurement_name: str,
+    lower: float,
+    upper: float,
+    unit: str,
+    role: MeasurementRole,
+) -> MeasurementValue:
+    return MeasurementValue(
+        measurement_id=measurement_id,
+        measurement_name=measurement_name,
+        quantitation=QuantitationValue(kind=QuantitationKind.RANGE, lower=lower, upper=upper, unit=unit),
+        measurement_role=role,
+        provenance=ProvenanceRecord(
+            source_type=SourceType.SIGNAL,
+            source_ref="s",
+            time=TimeProvenance(window_indices=[1]),
+            space=SpaceProvenance(channels=["O1", "O2"], region="posterior", laterality="bilateral"),
+            measurement=MeasurementProvenance(tool_name="background", function_name="amplitude"),
+        ),
+    )
+
+
+def test_llm_evidence_grouper_keeps_pdr_value_free_of_support_scores():
+    result = LLMEvidenceGrouper(adapter=MixedPdrGroupingAdapter()).run(
+        recording_id="s",
+        measurements=[
+            _exact_measurement("m_pdr_candidate", "pdr_candidate_frequency_hz", 8.3, MeasurementRole.CLINICAL_MEASUREMENT),
+            _exact_measurement("m_pdr_support", "pdr_v2_support_score", 0.45, MeasurementRole.PROXY_SCORE),
+            _exact_measurement("m_pdr_v2", "pdr_v2_frequency_hz", 9.5, MeasurementRole.CLINICAL_MEASUREMENT),
+        ],
+    )
+
+    item = result["shared_evidence_board"].evidence_items[0]
+    assert item.clinical_target == ClinicalTarget.PDR
+    assert item.value["frequency_hz"] == 9.5
+    assert item.value["pdr_supported"] == "true"
+    assert "pdr_v2_support_score" not in item.value
+    assert item.unit == "Hz"
+    assert item.measurement_ids == ["m_pdr_candidate", "m_pdr_v2"]
+    assert item.debug_payload["all_linked_measurement_ids"] == ["m_pdr_candidate", "m_pdr_support", "m_pdr_v2"]
+
+
+class MislabelledAmplitudeGroupingAdapter:
+    model = "fake-grouping"
+
+    def group(self, payload):
+        return {
+            "summary": "mislabelled amplitude",
+            "raw_eeg_used": False,
+            "gt_report_used": False,
+            "evidence_groups": [
+                {
+                    "evidence_id": "amp_group",
+                    "clinical_target": "background_slowing",
+                    "evidence_type": "derived",
+                    "value_summary": "Background amplitude range indicates moderate activity.",
+                    "linked_measurement_ids": ["m_amp"],
+                    "allowed_sections": ["background", "detail"],
+                    "rationale": "Adapter should correct target from linked measurement semantics.",
+                }
+            ],
+        }
+
+
+def test_llm_evidence_grouper_corrects_amplitude_target_when_llm_mislabels_it():
+    result = LLMEvidenceGrouper(adapter=MislabelledAmplitudeGroupingAdapter()).run(
+        recording_id="s",
+        measurements=[
+            _range_measurement(
+                "m_amp",
+                "background_amplitude_range_uv",
+                28.1,
+                43.9,
+                "uV",
+                MeasurementRole.CLINICAL_MEASUREMENT,
+            )
+        ],
+    )
+
+    item = result["shared_evidence_board"].evidence_items[0]
+    assert item.clinical_target == ClinicalTarget.BACKGROUND_AMPLITUDE
+    assert item.value == {"lower": 28.1, "upper": 43.9}
+    assert item.unit == "uV"

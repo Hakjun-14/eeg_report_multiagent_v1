@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import urllib.error
 import urllib.request
 from typing import Any, Dict
@@ -283,6 +284,90 @@ CLAIM_PLANNING_SCHEMA: Dict[str, Any] = {
 }
 
 
+CLINICAL_NEUROPHYSIOLOGIST_SYSTEM = (
+    "You are an expert clinical neurophysiologist specializing in EEG interpretation "
+    "and clinical report generation. You work inside an evidence-grounded assistive "
+    "AI pipeline for long-duration clinical EEG review."
+)
+
+
+REPORT_SYNTHESIS_STYLE_EXAMPLE = (
+    "CELM-STYLE REPORT GENERATION FORMAT EXAMPLE\n"
+    "This example defines report-generation style and input organization only. It is not "
+    "patient evidence and must not introduce claims that are absent from the payload.\n\n"
+    "EEGCHANNELS\n"
+    "['C3', 'C4', 'O1', 'O2', 'Cz', 'F3', 'F4', 'F7', 'F8', 'Fz', 'Fp1', 'Fp2', "
+    "'Fpz', 'P3', 'P4', 'Pz', 'T3', 'T4', 'T5', 'T6', 'A1', 'A2']\n\n"
+    "TASK\n"
+    "Your task is to generate the specified sections (**SECTIONS TO BE GENERATED**) "
+    "of a formal clinical EEG report using the above provided data of EEG recording "
+    "sessions and the following information:\n"
+    "- Patient history\n"
+    "- EEG description\n"
+    "- EEG channels\n\n"
+    "EEGSECTIONDESCRIPTIONS [STANDARDIZED_SECTION_DESCRIPTIONS]\n"
+    "e.g. EEG DESCRIPTION/DETAILS: Detailed narrative of EEG findings including "
+    "background activity, sleep stages, physiologic variants, and abnormalities observed "
+    "during the recording period.\n\n"
+    "GUIDELINES\n"
+    "- Do NOT generate any additional sections.\n"
+    "- Do NOT repeat the same section more than once.\n"
+    "- Do NOT include preamble, markdown, explanation, or audit text.\n"
+    "- Do NOT invent unsupported findings; use only supplied allowed/caveated claims.\n\n"
+    "OUTPUT FORMAT (STRICT)\n"
+    "SECTIONS TO BE GENERATED [SECTION_NAMES]\n"
+    "- Generate only the sections listed in **SECTIONS TO BE GENERATED**.\n"
+    "- Only generate the output in JSON format and do not include any other text.\n"
+    "Return ONLY the following JSON structure:\n"
+    "{\n"
+    '  "report_sections": [\n'
+    "    {\n"
+    '      "section_name": "Name of the section as given in SECTIONS TO BE GENERATED",\n'
+    '      "section_text": "Generated text for the section as a string"\n'
+    "    }\n"
+    "  ]\n"
+    "}\n"
+    "e.g. ['EEG DESCRIPTION/DETAILS']\n\n"
+    "PATIENT HISTORYANDEEGDESCRIPTION [PATIENT_HISTORY_AND_EEG_DESCRIPTION]\n"
+    "e.g. age: 77.0, gender: Female, indication: patient evaluated for transient "
+    "altered awareness. pertinent medications: provided medication list if available.\n\n"
+    "Now generate the EEG report."
+)
+
+
+def _clinical_stage_prompt_text(
+    *,
+    task: str,
+    provided_data: list[str],
+    guidelines: list[str],
+    output_format: str,
+    pipeline_position: str,
+    previous_stage: str,
+    next_stage: str,
+    payload: Dict[str, Any],
+    style_example: str | None = None,
+) -> str:
+    def bullets(items: list[str]) -> str:
+        return "\n".join(f"- {item}" for item in items)
+
+    payload_json = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
+    return (
+        f"{CLINICAL_NEUROPHYSIOLOGIST_SYSTEM}\n\n"
+        f"TASK\n{task}\n\n"
+        f"PIPELINE POSITION\n{pipeline_position}\n\n"
+        f"PREVIOUS STAGE\n{previous_stage}\n\n"
+        f"NEXT STAGE\n{next_stage}\n\n"
+        f"PROVIDED DATA\n{bullets(provided_data)}\n\n"
+        + (f"{style_example}\n\n" if style_example else "")
+        + (
+        f"GUIDELINES\n{bullets(guidelines)}\n\n"
+        f"OUTPUT FORMAT (STRICT)\n{output_format}\n\n"
+        f"PAYLOAD\n{payload_json}\n\n"
+        "Return only the required JSON object. Do not include preamble, markdown, or explanation."
+        )
+    )
+
+
 
 class OpenAIEvidenceReviewAdapter:
     """Structured OpenAI adapter for evidence-board-only review.
@@ -299,12 +384,22 @@ class OpenAIEvidenceReviewAdapter:
         if not api_key:
             raise RuntimeError("OPENAI_API_KEY is not set")
 
-        prompt = {
-            "task": (
-                "Review structured EEG evidence and return typed JSON for weak evidence, missing slots, "
-                "claim constraints, and bounded local tool suggestions."
+        prompt = _clinical_stage_prompt_text(
+            task=(
+                "Review the structured EEG evidence as a clinical neurophysiologist before report "
+                "claim planning. Identify weak support, missing clinically relevant evidence, "
+                "do-not-claim constraints, and bounded local tool suggestions."
             ),
-            "constraints": [
+            pipeline_position="Post-evidence-board clinical review before atomic claim planning.",
+            previous_stage="Bounded EEG tools generated MeasurementValue records and the evidence board assembled them.",
+            next_stage="The claim planner will use this review only as audit and constraint context.",
+            provided_data=[
+                "Structured measurement summaries",
+                "Measurement provenance summaries",
+                "Tool invocation summaries",
+                "Available bounded local tool registry",
+            ],
+            guidelines=[
                 "Do not infer new EEG evidence or clinical claims.",
                 "Do not request tools outside available_tools.",
                 "Do not use raw EEG or GT report text; they are not present in this payload.",
@@ -313,16 +408,20 @@ class OpenAIEvidenceReviewAdapter:
                 "Prefer calibrated uncertainty and do_not_claim records over unsupported clinical claims.",
                 "Propose additional local evidence collection only when it would strengthen provenance or uncertainty handling.",
             ],
-            "payload": evidence_payload,
-        }
+            output_format=(
+                "Return only JSON matching eeg_evidence_review: summary, evidence_gaps, weak_evidence, "
+                "missing_slots, do_not_claim, claim_constraints, and tool_request_proposals."
+            ),
+            payload=evidence_payload,
+        )
         body = {
             "model": self.model,
             "input": [
                 {
                     "role": "system",
-                    "content": "You are an evidence review policy for clinical EEG assistive AI. You only inspect structured evidence.",
+                    "content": CLINICAL_NEUROPHYSIOLOGIST_SYSTEM,
                 },
-                {"role": "user", "content": json.dumps(prompt, ensure_ascii=False)},
+                {"role": "user", "content": prompt},
             ],
             "text": {
                 "format": {
@@ -382,34 +481,52 @@ class OpenAIReportSynthesisAdapter:
         if not api_key:
             raise RuntimeError("OPENAI_API_KEY is not set")
 
-        prompt = {
-            "task": (
-                "Generate only the requested clinical EEG report sections from structured evidence. "
-                "Use concise formal report language, but preserve uncertainty and evidence limitations."
+        prompt = _clinical_stage_prompt_text(
+            task=(
+                "Generate the specified sections of a formal clinical EEG report using only the "
+                "provided allowed or caveated atomic claims."
             ),
-            "constraints": [
+            pipeline_position="Final neurologist-facing report wording after evidence and surface gating.",
+            previous_stage="Surface gating selected reportable AtomicClaimPlan entries.",
+            next_stage="Final prose auditing will check numeric provenance, debug leakage, seizure gating, and section consistency.",
+            provided_data=[
+                "Patient history and EEG description clinical context",
+                "Requested section names",
+                "Allowed or caveated AtomicClaimPlan entries",
+                "SurfaceDecision summaries",
+                "Evidence limitations attached to those claims",
+            ],
+            guidelines=[
                 "Use only the allowed or caveated atomic_claim_plans in the payload.",
+                "Follow the CELM-style section-description and patient-history formatting example for report style only.",
+                "Use the payload section_descriptions to understand each requested section's expected content.",
+                "When an atomic claim has reportable_evidence_values or linked_reportable_evidence values, preserve clinically meaningful values and units in the report sentence unless the value is marked unknown or unsafe.",
+                "If proposed_text is generic but linked reportable evidence contains a safe numeric value, rewrite the sentence to include that value with its unit and the same caveat level.",
                 "Do not infer new EEG evidence or clinical claims from general medical knowledge.",
                 "Do not claim definite epileptiform discharges or seizures when evidence says event candidates only.",
                 "Do not claim focality/laterality without spatial provenance.",
                 "Do not verbalize internal detector scores, proxy labels, or raw reviewer/audit text.",
+                "Do not add normality, posterior predominance, symmetry, organization, reactivity, seizure absence, or localization details unless they are explicitly present in the supplied claim/evidence payload.",
+                "Do not fill empty requested sections with plausible clinical statements; use the conservative fallback when no claim is available for that section.",
                 "Do not mention raw EEG review, GT/reference report text, or unavailable context.",
                 "Return exactly the requested section names where possible.",
                 "If no atomic claim plan is available for a section, use a conservative empty-evidence statement.",
             ],
-            "payload": evidence_payload,
-        }
+            output_format=(
+                "Return only JSON matching eeg_evidence_report_synthesis: report_sections, "
+                "global_limitations, raw_eeg_used=false, and gt_report_used=false."
+            ),
+            payload=evidence_payload,
+            style_example=REPORT_SYNTHESIS_STYLE_EXAMPLE,
+        )
         body = {
             "model": self.model,
             "input": [
                 {
                     "role": "system",
-                    "content": (
-                        "You are a clinical EEG report synthesis policy. You only verbalize structured "
-                        "evidence for an assistive AI system and never inspect raw EEG or reference reports."
-                    ),
+                    "content": CLINICAL_NEUROPHYSIOLOGIST_SYSTEM,
                 },
-                {"role": "user", "content": json.dumps(prompt, ensure_ascii=False)},
+                {"role": "user", "content": prompt},
             ],
             "text": {
                 "format": {
@@ -467,12 +584,23 @@ class OpenAIEvidenceGroupingAdapter:
         if not api_key:
             raise RuntimeError("OPENAI_API_KEY is not set")
 
-        prompt = {
-            "task": (
-                "Act as a clinical neurophysiology evidence organizer. Group typed EEG measurements "
-                "into a small number of patient-specific EvidenceItems. Do not write report prose."
+        prompt = _clinical_stage_prompt_text(
+            task=(
+                "Convert the provided typed EEG measurements into patient-specific clinical EvidenceItems. "
+                "This mirrors the pre-report reasoning step where a clinical neurophysiologist separates "
+                "measured observations from reportable prose."
             ),
-            "constraints": [
+            pipeline_position="Measurement-to-evidence clinical reasoning stage.",
+            previous_stage="Bounded signal/status tools generated MeasurementValue records from EEG-derived statistics and context.",
+            next_stage="The claim planner will convert EvidenceItems into AtomicClaimPlan entries.",
+            provided_data=[
+                "Patient history and EEG description clinical context",
+                "Typed EEG measurement summaries",
+                "Measurement names, values, status fields, and metadata",
+                "Time, channel, region, and laterality provenance summaries",
+                "Allowed clinical targets, evidence types, and report sections",
+            ],
+            guidelines=[
                 "Use only measurement IDs present in the payload.",
                 "Do not inspect, request, or infer from raw EEG; raw EEG is not present.",
                 "Do not use GT/reference report text; it is not present.",
@@ -482,16 +610,20 @@ class OpenAIEvidenceGroupingAdapter:
                 "Keep evidence groups compact: group related measurements into clinical targets such as pdr, background_slowing, localization, protocol, state.",
                 "Attach a clinical_knowledge_reference for each group. If no source is provided, use required_but_not_provided rather than inventing a citation.",
             ],
-            "payload": payload,
-        }
+            output_format=(
+                "Return only JSON matching eeg_evidence_grouping: summary, evidence_groups, "
+                "raw_eeg_used=false, and gt_report_used=false. Do not generate report prose."
+            ),
+            payload=payload,
+        )
         body = {
             "model": self.model,
             "input": [
                 {
                     "role": "system",
-                    "content": "You group structured EEG measurements into typed evidence groups for an assistive EEG report system.",
+                    "content": CLINICAL_NEUROPHYSIOLOGIST_SYSTEM,
                 },
-                {"role": "user", "content": json.dumps(prompt, ensure_ascii=False)},
+                {"role": "user", "content": prompt},
             ],
             "text": {
                 "format": {
@@ -539,21 +671,33 @@ class OpenAIEvidenceGroupingAdapter:
 class OpenAIClaimPlanningAdapter:
     """LLM adapter for EvidenceItem-to-AtomicClaimPlan planning."""
 
-    def __init__(self, model: str | None = None, timeout_sec: int = 90) -> None:
+    def __init__(self, model: str | None = None, timeout_sec: int = 90, max_retries: int = 3) -> None:
         self.model = model or os.getenv("OPENAI_CLAIM_PLANNING_MODEL", "gpt-4o-mini")
         self.timeout_sec = timeout_sec
+        self.max_retries = max_retries
 
     def plan(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
             raise RuntimeError("OPENAI_API_KEY is not set")
 
-        prompt = {
-            "task": (
-                "Act as a clinical EEG claim planner. Convert typed patient-specific EvidenceItems "
-                "into concise AtomicClaimPlan candidates. Do not write full report sections."
+        prompt = _clinical_stage_prompt_text(
+            task=(
+                "Convert patient-specific EvidenceItems into minimal AtomicClaimPlan candidates. "
+                "This mirrors the clinical step of deciding which evidence can support a concise "
+                "report claim, which evidence requires caveat, and which evidence must remain non-reportable."
             ),
-            "constraints": [
+            pipeline_position="Evidence-to-atomic-claim clinical reasoning stage.",
+            previous_stage="The evidence organizer produced typed EvidenceItems with provenance and reportability context.",
+            next_stage="The surface gate will make the final allow/caveat/block/debug_only decision before report prose.",
+            provided_data=[
+                "Patient history and EEG description clinical context",
+                "Typed EvidenceItems",
+                "Evidence values and normalized values",
+                "Time and space provenance",
+                "Allowed sections and allowed surface actions",
+            ],
+            guidelines=[
                 "Use only evidence_ids present in the payload.",
                 "Do not inspect, request, or infer from raw EEG; raw EEG is not present.",
                 "Do not use GT/reference report text; it is not present.",
@@ -561,19 +705,26 @@ class OpenAIClaimPlanningAdapter:
                 "Do not mention candidate burden, burden ratio, support score, likelihood score, field concentration ratio, laterality index, bifrontal ratio, ratio of, train duration, slowing score, score of, alpha ratio, symmetry score, confidence score, confidence assessment, confidence in this assessment, confidence in the determination, support being marked, analyzed scores, concentration ratios, missing_slots, or values_preview.",
                 "Do not create seizure claims unless linked evidence has clinical_target=seizure_evidence and evidence_type is direct, derived, or metadata.",
                 "Do not call global or boundary 0.5 Hz activity a PDR.",
+                "If an EvidenceItem has clinical_target=pdr with frequency_hz in 8-13 Hz and pdr_supported=true, create an allow/caveat PDR claim using the frequency value.",
+                "If an EvidenceItem has clinical_target=background_amplitude with a uV range, create an allow/caveat amplitude claim using the range.",
+                "Do not turn background_dominant_frequency_hz=0.5 Hz, slowing_score, beta_excess_score, or other internal/proxy measurements into allow claims.",
                 "Use caveated wording when state, morphology, localization, or reactivity support is incomplete.",
                 "Return block/debug_only for proxy or internal evidence that cannot safely surface.",
             ],
-            "payload": payload,
-        }
+            output_format=(
+                "Return only JSON matching eeg_claim_planning: summary, atomic_claims, "
+                "raw_eeg_used=false, and gt_report_used=false. Do not generate full report sections."
+            ),
+            payload=payload,
+        )
         body = {
             "model": self.model,
             "input": [
                 {
                     "role": "system",
-                    "content": "You plan atomic clinical EEG claims from typed evidence only. Safety gates run after you.",
+                    "content": CLINICAL_NEUROPHYSIOLOGIST_SYSTEM,
                 },
-                {"role": "user", "content": json.dumps(prompt, ensure_ascii=False)},
+                {"role": "user", "content": prompt},
             ],
             "text": {
                 "format": {
@@ -593,12 +744,17 @@ class OpenAIClaimPlanningAdapter:
             },
             method="POST",
         )
-        try:
-            with urllib.request.urlopen(request, timeout=self.timeout_sec) as response:
-                data = json.loads(response.read().decode("utf-8"))
-        except urllib.error.HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="ignore")
-            raise RuntimeError(f"OpenAI claim planning failed: {exc.code}: {detail}") from exc
+        for attempt in range(self.max_retries + 1):
+            try:
+                with urllib.request.urlopen(request, timeout=self.timeout_sec) as response:
+                    data = json.loads(response.read().decode("utf-8"))
+                break
+            except urllib.error.HTTPError as exc:
+                detail = exc.read().decode("utf-8", errors="ignore")
+                if exc.code in {429, 500, 502, 503, 504} and attempt < self.max_retries:
+                    time.sleep(2 ** attempt)
+                    continue
+                raise RuntimeError(f"OpenAI claim planning failed: {exc.code}: {detail}") from exc
 
         text = self._extract_text(data)
         if not text:

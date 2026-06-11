@@ -5,7 +5,7 @@ from typing import Any, Dict, Iterable, List
 from eeg_report_multiagent.llm import OpenAIClaimPlanningAdapter
 from eeg_report_multiagent.schemas.report import AtomicClaimPlan, ClaimSurfaceAction, ReportSectionType
 from eeg_report_multiagent.schemas.section_contract import SectionRole
-from eeg_report_multiagent.schemas.shared_evidence import ClinicalTarget, EvidenceItem, SharedEvidenceBoard
+from eeg_report_multiagent.schemas.shared_evidence import ClinicalTarget, EvidenceItem, EvidenceType, SharedEvidenceBoard
 from eeg_report_multiagent.modules.surface_policy import SurfacePolicy
 
 
@@ -16,9 +16,9 @@ class LLMClaimPlanner:
         self.adapter = adapter or OpenAIClaimPlanningAdapter()
         self.surface_policy = SurfacePolicy()
 
-    def run(self, shared_board: SharedEvidenceBoard) -> Dict[str, Any]:
+    def run(self, shared_board: SharedEvidenceBoard, clinical_context: Dict[str, Any] | None = None) -> Dict[str, Any]:
         evidence_items = shared_board.list_evidence()
-        payload = self._payload(shared_board, evidence_items)
+        payload = self._payload(shared_board, evidence_items, clinical_context or {})
         result = self.adapter.plan(payload)
         plans = self._plans_from_result(evidence_items, result)
         return {
@@ -31,9 +31,15 @@ class LLMClaimPlanner:
             "atomic_claim_plan": plans,
         }
 
-    def _payload(self, shared_board: SharedEvidenceBoard, evidence_items: List[EvidenceItem]) -> Dict[str, Any]:
+    def _payload(
+        self,
+        shared_board: SharedEvidenceBoard,
+        evidence_items: List[EvidenceItem],
+        clinical_context: Dict[str, Any],
+    ) -> Dict[str, Any]:
         return {
             "recording_id": shared_board.recording_id,
+            "clinical_context": clinical_context,
             "allowed_surface_actions": [action.value for action in ClaimSurfaceAction],
             "allowed_sections": [role.value for role in SectionRole],
             "evidence_items": [self._evidence_payload(item) for item in evidence_items],
@@ -49,18 +55,58 @@ class LLMClaimPlanner:
             "source_module": item.source_module,
             "evidence_type": getattr(item.evidence_type, "value", str(item.evidence_type)),
             "clinical_target": getattr(item.clinical_target, "value", str(item.clinical_target)),
-            "value": item.value,
+            "value": self._compact_value(item.value),
             "unit": item.unit,
-            "normalized_value": item.normalized_value,
-            "time_provenance": item.time_provenance,
-            "space_provenance": item.space_provenance,
+            "normalized_value": self._compact_value(item.normalized_value),
+            "time_provenance": self._compact_value(item.time_provenance),
+            "space_provenance": self._compact_value(item.space_provenance),
             "measurement_ids": item.measurement_ids,
             "debug_payload_summary": {
-                "clinical_knowledge_reference": item.debug_payload.get("clinical_knowledge_reference"),
-                "value_summary": item.debug_payload.get("value_summary"),
-                "measurement_names": item.debug_payload.get("measurement_names"),
+                "clinical_knowledge_reference": self._compact_value(item.debug_payload.get("clinical_knowledge_reference")),
+                "value_summary": self._compact_value(item.debug_payload.get("value_summary")),
+                "measurement_names": self._compact_value(item.debug_payload.get("measurement_names")),
             },
         }
+
+    def _compact_value(self, value: Any, *, depth: int = 0) -> Any:
+        """Keep reportable values while preventing large debug arrays from hitting the LLM context window."""
+
+        if value is None or isinstance(value, (bool, int, float, str)):
+            return value
+        if depth >= 4:
+            return self._summarize_collection(value)
+        if isinstance(value, dict):
+            out: Dict[str, Any] = {}
+            for idx, (key, nested) in enumerate(value.items()):
+                if idx >= 60:
+                    out["__omitted_key_count"] = len(value) - idx
+                    break
+                out[str(key)] = self._compact_value(nested, depth=depth + 1)
+            return out
+        if isinstance(value, (list, tuple)):
+            if len(value) <= 12:
+                return [self._compact_value(nested, depth=depth + 1) for nested in value]
+            numeric = [float(x) for x in value if isinstance(x, (int, float))]
+            if len(numeric) == len(value) and numeric:
+                return {
+                    "count": len(numeric),
+                    "min": min(numeric),
+                    "max": max(numeric),
+                    "mean": sum(numeric) / len(numeric),
+                    "preview": numeric[:5],
+                }
+            return {
+                "count": len(value),
+                "preview": [self._compact_value(nested, depth=depth + 1) for nested in value[:5]],
+            }
+        return str(value)
+
+    def _summarize_collection(self, value: Any) -> Dict[str, Any]:
+        if isinstance(value, dict):
+            return {"type": "dict", "key_count": len(value), "keys_preview": [str(key) for key in list(value)[:8]]}
+        if isinstance(value, (list, tuple)):
+            return {"type": "list", "count": len(value)}
+        return {"type": type(value).__name__}
 
     def _plans_from_result(self, evidence_items: List[EvidenceItem], result: Dict[str, Any]) -> List[AtomicClaimPlan]:
         evidence_index = {item.evidence_id: item for item in evidence_items}
@@ -112,16 +158,58 @@ class LLMClaimPlanner:
                     },
                 )
             )
+        plans.extend(self._coverage_guard_claims(evidence_items, plans))
         return plans
+
+    def _coverage_guard_claims(
+        self,
+        evidence_items: List[EvidenceItem],
+        existing_plans: List[AtomicClaimPlan],
+    ) -> List[AtomicClaimPlan]:
+        claimed_evidence_ids = {evidence_id for plan in existing_plans for evidence_id in plan.evidence_ids}
+        out: List[AtomicClaimPlan] = []
+        for item in evidence_items:
+            target = str(getattr(item.clinical_target, "value", item.clinical_target))
+            evidence_type = getattr(item.evidence_type, "value", item.evidence_type)
+            if item.evidence_id in claimed_evidence_ids:
+                continue
+            if evidence_type not in {EvidenceType.DIRECT.value, EvidenceType.DERIVED.value, EvidenceType.METADATA.value}:
+                continue
+            if target not in {ClinicalTarget.PDR.value, ClinicalTarget.BACKGROUND_AMPLITUDE.value}:
+                continue
+            proposed_text = self._safe_text_from_evidence([item])
+            if not proposed_text or self.surface_policy.contains_forbidden_surface_text(proposed_text):
+                continue
+            out.append(
+                AtomicClaimPlan(
+                    plan_id=self._safe_plan_id(f"coverage_{item.evidence_id}"),
+                    section_type=ReportSectionType.DETAIL,
+                    claim_type=target,
+                    proposed_text=proposed_text,
+                    evidence_ids=[item.evidence_id],
+                    linked_measurement_ids=list(item.measurement_ids),
+                    required_evidence=[],
+                    missing_evidence=[],
+                    surface_action=ClaimSurfaceAction.CAVEAT,
+                    confidence=None,
+                    rationale="Coverage guard preserved safe reportable evidence omitted by LLM claim planning.",
+                    allowed_sections=self._safe_allowed_sections([item], list(item.allowed_sections)),
+                    forbidden_sections=[],
+                    clinical_phrase_template_id="llm_atomic_claim_coverage_guard",
+                    debug_payload={
+                        "llm_claim_planning": True,
+                        "coverage_guard_for_omitted_safe_evidence": True,
+                    },
+                )
+            )
+        return out
 
     def _should_force_safe_text(self, evidence_items: List[EvidenceItem], proposed_text: str) -> bool:
         targets = {str(getattr(item.clinical_target, "value", item.clinical_target)) for item in evidence_items}
         lowered = proposed_text.lower()
         if targets & {ClinicalTarget.STATE.value, ClinicalTarget.PROTOCOL.value}:
             return True
-        if ClinicalTarget.PDR.value in targets and "confidence" in lowered:
-            return True
-        if ClinicalTarget.PDR.value in targets and "candidate" not in lowered:
+        if ClinicalTarget.PDR.value in targets:
             return True
         if "unknown" in lowered and "presence" in lowered:
             return True

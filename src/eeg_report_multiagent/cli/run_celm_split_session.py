@@ -11,9 +11,36 @@ from pydantic import BaseModel
 from eeg_report_multiagent.evaluation.method_audit import audit_artifact_dir, render_audit_markdown
 from eeg_report_multiagent.evaluation.section_contract_audit import audit_section_contract
 from eeg_report_multiagent.io import load_celm_split_sample, make_celm_generated_report
-from eeg_report_multiagent.modules.report_synthesizer import ReportSynthesizer
 from eeg_report_multiagent.modules.final_prose_auditor import FinalProseAuditor
+from eeg_report_multiagent.modules.llm_report_synthesizer import EvidenceBoardLLMReportSynthesizer
+from eeg_report_multiagent.modules.report_synthesizer import ReportSynthesizer
+from eeg_report_multiagent.modules.section_router import SectionRouter
 from eeg_report_multiagent.schemas.evidence import EvidenceBoard
+from eeg_report_multiagent.schemas.report import AtomicClaimPlan
+
+
+_EVAL_ONLY_METADATA_KEYS = {
+    "report_json_path_eval_only",
+    "gt_report_json_path",
+    "gt_report_text_path",
+    "reference_report_path",
+    "reference_gt_report_text",
+}
+
+_SAFE_CLINICAL_METADATA_KEYS = {
+    "AgeAtVisit",
+    "Avg_Age",
+    "Gender",
+    "SexDSC",
+    "ProcedureDSC",
+    "ProcedureDSC(Reports)",
+    "VisitTypeDSC",
+    "RecordType",
+    "NumberOfSessions",
+    "site",
+    "split",
+    "split_type",
+}
 
 
 def _to_jsonable(payload):
@@ -29,6 +56,83 @@ def _to_jsonable(payload):
 def _write_json(path: Path, payload: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(_to_jsonable(payload), ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _sanitize_patient_history_text(text: str) -> str:
+    """Keep CELM-style clinical context while stripping target report text."""
+    lowered = text.lower()
+    cut = len(text)
+    for marker in (
+        "\nmethod:",
+        " method:",
+        "\ndetail:",
+        " detail:",
+        "\neeg description",
+        " eeg description",
+        "\nimpression",
+        " impression:",
+        "\ncomparison:",
+        " comparison:",
+        "\nstart time:",
+        " start time:",
+    ):
+        idx = lowered.find(marker)
+        if idx >= 0:
+            cut = min(cut, idx)
+    return text[:cut].strip()
+
+
+def _clinical_context_from_study_context(study_context: dict) -> dict:
+    metadata = study_context.get("metadata") if isinstance(study_context.get("metadata"), dict) else {}
+    safe_metadata = {
+        str(key): "" if value is None else str(value)
+        for key, value in metadata.items()
+        if str(key) in _SAFE_CLINICAL_METADATA_KEYS and str(key) not in _EVAL_ONLY_METADATA_KEYS
+    }
+    clinical_text = _sanitize_patient_history_text(
+        str(
+            study_context.get("clinical_history")
+            or study_context.get("patient_history")
+            or metadata.get("clinical_history")
+            or ""
+        )
+    )
+    target_sections = study_context.get("target_section_names") or metadata.get("target_section_names") or []
+    return {
+        "patient_history_and_eeg_description": str(clinical_text),
+        "target_section_names": target_sections if isinstance(target_sections, list) else str(target_sections),
+        "context_type": str(study_context.get("context_type", "")),
+        "metadata": safe_metadata,
+        "gt_report_text_included": False,
+    }
+
+
+def _read_atomic_claim_plan(path: Path) -> list[AtomicClaimPlan]:
+    if not path.exists():
+        return []
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, list):
+        return []
+    return [AtomicClaimPlan.model_validate(item) for item in payload]
+
+
+def _fallback_section_texts_from_claim_plan(
+    synth: ReportSynthesizer,
+    board: EvidenceBoard,
+    claim_plan: list[AtomicClaimPlan],
+    target_section_names: list[str],
+) -> dict[str, str]:
+    """Compatibility fallback that still preserves the existing LLM claim plan."""
+    router = SectionRouter()
+    surface_decisions = synth.build_surface_decisions(claim_plan, board.ensure_shared_evidence_board())
+    return {
+        section_name: synth._section_text_from_plans(  # noqa: SLF001
+            claim_plan,
+            router.role_for_section(section_name),
+            surface_decisions,
+        )
+        for section_name in target_section_names
+    }
 
 
 def main() -> None:
@@ -117,13 +221,37 @@ def main() -> None:
     impression_text = (out_dir / "impression.txt").read_text(encoding="utf-8") if (out_dir / "impression.txt").exists() else ""
     section_texts = None
     evidence_board_path = out_dir / "evidence_board.json"
+    claim_plan: list[AtomicClaimPlan] = []
     if evidence_board_path.exists():
         board = EvidenceBoard.model_validate_json(evidence_board_path.read_text(encoding="utf-8"))
         synth = ReportSynthesizer()
-        section_texts = synth.synthesize_celm_sections(
-            board=board,
-            target_section_names=sample.target_section_names_standardized,
-        )
+        claim_plan = _read_atomic_claim_plan(out_dir / "atomic_claim_plan.json") or synth.build_atomic_claim_plan(board)
+        try:
+            result = EvidenceBoardLLMReportSynthesizer(report_synthesizer=synth).synthesize_celm_sections(
+                board=board,
+                target_section_names=sample.target_section_names_standardized,
+                clinical_context=_clinical_context_from_study_context(sample.study_context),
+                claim_plan_override=claim_plan,
+            )
+            section_texts = result.section_texts
+            _write_json(out_dir / "llm_report_synthesis.json", result.trace)
+        except Exception as exc:
+            # Keep the batch runnable if the report LLM/API is unavailable, but
+            # do not fall back to rebuilding grouped rule claims.
+            _write_json(
+                out_dir / "llm_report_synthesis_error.json",
+                {
+                    "error_type": type(exc).__name__,
+                    "error_message": str(exc),
+                    "fallback": "existing_atomic_claim_plan_template_rendering",
+                },
+            )
+            section_texts = _fallback_section_texts_from_claim_plan(
+                synth,
+                board,
+                claim_plan,
+                sample.target_section_names_standardized,
+            )
         _write_json(out_dir / "celm_section_texts.json", section_texts)
     generated_report = make_celm_generated_report(
         target_section_names=sample.target_section_names_standardized,
@@ -137,7 +265,7 @@ def main() -> None:
         section_audit = audit_section_contract(sample.target_section_contract, board, generated_report)
         _write_json(out_dir / "section_contract_audit.json", section_audit)
         synth = ReportSynthesizer()
-        claim_plan = synth.build_atomic_claim_plan(board)
+        claim_plan = claim_plan or _read_atomic_claim_plan(out_dir / "atomic_claim_plan.json") or synth.build_atomic_claim_plan(board)
         surface_decisions = synth.build_surface_decisions(claim_plan, board.ensure_shared_evidence_board())
         _write_json(out_dir / "surface_decisions.json", surface_decisions)
         final_prose_audit = FinalProseAuditor().audit_report(

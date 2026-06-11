@@ -22,6 +22,7 @@ class PipelineState(TypedDict, total=False):
     session: EEGSessionData
     manifest: SessionManifest
     note_text: str
+    clinical_context: Dict[str, Any]
 
     scout_summary: Dict[str, float]
 

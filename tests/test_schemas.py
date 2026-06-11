@@ -3,6 +3,8 @@ from eeg_report_multiagent.schemas import (
     ClaimRecord,
     ClaimSurfaceAction,
     EvidenceBoard,
+    MeasurementContextDependency,
+    MeasurementRole,
     MeasurementValue,
     ProvenanceRecord,
     QuantitationValue,
@@ -13,6 +15,7 @@ from eeg_report_multiagent.schemas import (
 from eeg_report_multiagent.schemas.measurement import QuantitationKind, StatusSemantic, StatusValue
 from eeg_report_multiagent.schemas.provenance import SourceType
 from eeg_report_multiagent.schemas.report import ClaimSupportLabel, ReportSectionType
+from eeg_report_multiagent.tools.common import make_exact_measurement, make_status_measurement
 
 
 def test_schema_instantiation_smoke() -> None:
@@ -51,6 +54,8 @@ def test_schema_instantiation_smoke() -> None:
     assert verify.support_label == ClaimSupportLabel.SUPPORTED
     assert inv.tool_name == "t"
     assert board.measurements[0].measurement_id == "m1"
+    assert meas.context_dependency == MeasurementContextDependency.UNKNOWN
+    assert meas.measurement_role == MeasurementRole.UNKNOWN
 
 
 def test_status_measurement_schema() -> None:
@@ -62,3 +67,34 @@ def test_status_measurement_schema() -> None:
         provenance=prov,
     )
     assert meas.status_value.status == StatusSemantic.NOT_PERFORMED
+
+
+def test_measurement_helper_tags_context_and_role() -> None:
+    signal_prov = ProvenanceRecord(source_type=SourceType.SIGNAL, source_ref="session")
+    pdr = make_exact_measurement(
+        measurement_id="m_pdr",
+        measurement_name="pdr_candidate_frequency_hz",
+        value=9.2,
+        unit="Hz",
+        provenance=signal_prov,
+    )
+    score = make_exact_measurement(
+        measurement_id="m_score",
+        measurement_name="epileptiform_candidate_likelihood_score",
+        value=0.9,
+        unit="score",
+        provenance=signal_prov,
+    )
+    status = make_status_measurement(
+        measurement_id="m_hv",
+        measurement_name="hyperventilation_status",
+        status=StatusSemantic.NOT_PERFORMED,
+        provenance=ProvenanceRecord(source_type=SourceType.METADATA, source_ref="session"),
+    )
+
+    assert pdr.context_dependency == MeasurementContextDependency.SIGNAL_ONLY
+    assert pdr.measurement_role == MeasurementRole.CLINICAL_MEASUREMENT
+    assert score.context_dependency == MeasurementContextDependency.SIGNAL_ONLY
+    assert score.measurement_role == MeasurementRole.PROXY_SCORE
+    assert status.context_dependency == MeasurementContextDependency.CONTEXT_STATUS
+    assert status.measurement_role == MeasurementRole.STATUS_OBSERVATION

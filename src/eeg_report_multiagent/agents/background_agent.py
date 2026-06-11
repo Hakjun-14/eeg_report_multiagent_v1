@@ -8,7 +8,7 @@ class BackgroundAgent:
 
     BASE_TOOLS = [
         "psd_power_spectrum_summary",
-        "posterior_dominant_rhythm_candidate",
+        "posterior_dominant_rhythm_spectral_v2",
         "background_organization_proxy",
         "background_unavailable_slot_status",
         "bandpower_summary",

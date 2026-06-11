@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Dict, Iterable, List
 
 from eeg_report_multiagent.llm import OpenAIEvidenceGroupingAdapter
-from eeg_report_multiagent.schemas.measurement import MeasurementValue
+from eeg_report_multiagent.schemas.measurement import MeasurementRole, MeasurementValue
 from eeg_report_multiagent.schemas.report import ClaimSurfaceAction
 from eeg_report_multiagent.schemas.section_contract import SectionRole
 from eeg_report_multiagent.schemas.shared_evidence import ClinicalTarget, EvidenceItem, EvidenceType, SharedEvidenceBoard
@@ -15,9 +15,15 @@ class LLMEvidenceGrouper:
     def __init__(self, adapter: OpenAIEvidenceGroupingAdapter | None = None) -> None:
         self.adapter = adapter or OpenAIEvidenceGroupingAdapter()
 
-    def run(self, *, recording_id: str, measurements: Iterable[MeasurementValue]) -> Dict[str, Any]:
+    def run(
+        self,
+        *,
+        recording_id: str,
+        measurements: Iterable[MeasurementValue],
+        clinical_context: Dict[str, Any] | None = None,
+    ) -> Dict[str, Any]:
         measurement_list = list(measurements)
-        payload = self._payload(recording_id, measurement_list)
+        payload = self._payload(recording_id, measurement_list, clinical_context or {})
         result = self.adapter.group(payload)
         board = self._board_from_result(recording_id, measurement_list, result)
         return {
@@ -30,9 +36,15 @@ class LLMEvidenceGrouper:
             "shared_evidence_board": board,
         }
 
-    def _payload(self, recording_id: str, measurements: List[MeasurementValue]) -> Dict[str, Any]:
+    def _payload(
+        self,
+        recording_id: str,
+        measurements: List[MeasurementValue],
+        clinical_context: Dict[str, Any],
+    ) -> Dict[str, Any]:
         return {
             "recording_id": recording_id,
+            "clinical_context": clinical_context,
             "allowed_clinical_targets": [target.value for target in ClinicalTarget],
             "allowed_evidence_types": [evidence_type.value for evidence_type in EvidenceType],
             "allowed_sections": [role.value for role in SectionRole],
@@ -92,21 +104,24 @@ class LLMEvidenceGrouper:
                 continue
             evidence_type = EvidenceType(group.get("evidence_type", EvidenceType.LLM_ASSISTED.value))
             target = ClinicalTarget(group.get("clinical_target", ClinicalTarget.UNKNOWN.value))
+            target = self._correct_target_from_measurements(target, linked_measurements)
             action = self._compat_reportability(evidence_type, target)
-            value = self._group_value(target, linked_measurements)
+            report_linked_measurements = self._report_linked_measurements(target, linked_measurements)
+            report_linked_ids = [measurement.measurement_id for measurement in report_linked_measurements]
+            value = self._group_value(target, report_linked_measurements)
             item = EvidenceItem(
                 evidence_id=self._safe_evidence_id(str(group.get("evidence_id") or f"llm_group_{idx}")),
                 source_module="llm_evidence_grouper",
                 evidence_type=evidence_type,
                 clinical_target=target,
                 value=value,
-                unit=self._group_unit(linked_measurements),
+                unit=self._group_unit(report_linked_measurements),
                 normalized_value=value,
                 confidence=None,
                 reliability=None,
-                time_provenance=self._time_provenance(linked_measurements),
-                space_provenance=self._space_provenance(linked_measurements),
-                measurement_ids=linked_ids,
+                time_provenance=self._time_provenance(report_linked_measurements),
+                space_provenance=self._space_provenance(report_linked_measurements),
+                measurement_ids=report_linked_ids,
                 reportability=action,
                 allowed_sections=[section for section in group.get("allowed_sections", []) if section in {role.value for role in SectionRole}],
                 rationale=None,
@@ -116,6 +131,7 @@ class LLMEvidenceGrouper:
                     "rationale": str(group.get("rationale", "")),
                     "value_summary": str(group.get("value_summary", "")),
                     "clinical_knowledge_reference": group.get("clinical_knowledge_reference", {}),
+                    "all_linked_measurement_ids": linked_ids,
                     "measurement_names": [measurement.measurement_name for measurement in linked_measurements],
                 },
                 created_by="llm_evidence_grouper",
@@ -133,21 +149,63 @@ class LLMEvidenceGrouper:
             return ClaimSurfaceAction.ALLOW
         return ClaimSurfaceAction.CAVEAT
 
+    def _correct_target_from_measurements(
+        self,
+        target: ClinicalTarget,
+        measurements: List[MeasurementValue],
+    ) -> ClinicalTarget:
+        names = {measurement.measurement_name for measurement in measurements}
+        if (
+            target == ClinicalTarget.BACKGROUND_SLOWING
+            and "background_amplitude_range_uv" in names
+            and not names.intersection({"slowing_score", "background_dominant_frequency_hz"})
+        ):
+            return ClinicalTarget.BACKGROUND_AMPLITUDE
+        return target
+
+    def _report_linked_measurements(
+        self,
+        target: ClinicalTarget,
+        measurements: List[MeasurementValue],
+    ) -> List[MeasurementValue]:
+        if target == ClinicalTarget.PDR:
+            reportable = [
+                measurement
+                for measurement in measurements
+                if measurement.measurement_role == MeasurementRole.CLINICAL_MEASUREMENT
+                or "reactivity" in measurement.measurement_name.lower()
+            ]
+            return reportable or measurements
+        return measurements
+
     def _group_value(self, target: ClinicalTarget, measurements: List[MeasurementValue]) -> Dict[str, Any]:
+        if target == ClinicalTarget.PDR:
+            return self._pdr_group_value(measurements)
+        if target == ClinicalTarget.BACKGROUND_AMPLITUDE:
+            amplitude = self._first_named_measurement(measurements, "background", "amplitude")
+            value = self._measurement_value(amplitude) if amplitude is not None else None
+            return value if isinstance(value, dict) else {"background_amplitude_range_uv": value}
+
         values: Dict[str, Any] = {}
         for measurement in measurements:
             value = self._measurement_value(measurement)
             if value is None:
                 continue
             values[measurement.measurement_name] = value
+        return values
 
-        if target == ClinicalTarget.PDR:
-            freq = self._first_named_value(measurements, "pdr", "frequency")
-            if isinstance(freq, (int, float)):
-                values["frequency_hz"] = float(freq)
-                if 8.0 <= float(freq) <= 13.0 and self._has_posterior_provenance(measurements):
-                    values["pdr_supported"] = "true"
-            values.setdefault("reactivity", self._first_named_value(measurements, "reactivity") or "unknown")
+    def _pdr_group_value(self, measurements: List[MeasurementValue]) -> Dict[str, Any]:
+        """Keep reportable PDR values separate from support/debug measurements."""
+        values: Dict[str, Any] = {}
+        freq = self._first_exact_measurement_value(
+            measurements,
+            preferred_names=("pdr_v2_frequency_hz", "pdr_candidate_frequency_hz"),
+        )
+        if isinstance(freq, (int, float)):
+            values["frequency_hz"] = float(freq)
+            if 8.0 <= float(freq) <= 13.0 and self._has_posterior_provenance(measurements):
+                values["pdr_supported"] = "true"
+        values["reactivity"] = self._first_named_value(measurements, "reactivity") or "unknown"
         return values
 
     def _measurement_value(self, measurement: MeasurementValue) -> Any:
@@ -168,12 +226,47 @@ class LLMEvidenceGrouper:
         return None
 
     def _group_unit(self, measurements: List[MeasurementValue]) -> str | None:
+        clinical_units = {
+            measurement.quantitation.unit
+            for measurement in measurements
+            if measurement.measurement_role == MeasurementRole.CLINICAL_MEASUREMENT
+            and measurement.quantitation is not None
+            and measurement.quantitation.unit
+        }
+        if len(clinical_units) == 1:
+            return sorted(clinical_units)[0]
         units = {
             measurement.quantitation.unit
             for measurement in measurements
             if measurement.quantitation is not None and measurement.quantitation.unit
         }
         return sorted(units)[0] if len(units) == 1 else None
+
+    def _first_exact_measurement_value(
+        self,
+        measurements: List[MeasurementValue],
+        *,
+        preferred_names: tuple[str, ...],
+    ) -> Any:
+        by_name = {measurement.measurement_name.lower(): measurement for measurement in measurements}
+        for name in preferred_names:
+            measurement = by_name.get(name.lower())
+            if measurement is not None:
+                return self._measurement_value(measurement)
+        for measurement in measurements:
+            if measurement.measurement_role != MeasurementRole.CLINICAL_MEASUREMENT:
+                continue
+            value = self._measurement_value(measurement)
+            if value is not None:
+                return value
+        return None
+
+    def _first_named_measurement(self, measurements: List[MeasurementValue], *needles: str) -> MeasurementValue | None:
+        for measurement in measurements:
+            name = measurement.measurement_name.lower()
+            if all(needle in name for needle in needles):
+                return measurement
+        return None
 
     def _first_named_value(self, measurements: List[MeasurementValue], *needles: str) -> Any:
         for measurement in measurements:

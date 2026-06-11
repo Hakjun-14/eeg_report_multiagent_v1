@@ -25,6 +25,23 @@ class QuantitationKind(str, Enum):
     DISTRIBUTION = "distribution"
 
 
+class MeasurementContextDependency(str, Enum):
+    SIGNAL_ONLY = "signal_only"
+    CONTEXT_SELECTED = "context_selected"
+    CONTEXT_STATUS = "context_status"
+    CROSS_MODAL = "cross_modal"
+    UNKNOWN = "unknown"
+
+
+class MeasurementRole(str, Enum):
+    CLINICAL_MEASUREMENT = "clinical_measurement"
+    SUPPORT_FEATURE = "support_feature"
+    PROXY_SCORE = "proxy_score"
+    STATUS_OBSERVATION = "status_observation"
+    DEBUG_DIAGNOSTIC = "debug_diagnostic"
+    UNKNOWN = "unknown"
+
+
 class QuantitationValue(BaseModel):
     kind: QuantitationKind
     unit: Optional[str] = None
@@ -70,6 +87,8 @@ class MeasurementValue(BaseModel):
     boolean_value: Optional[bool] = None
     provenance: ProvenanceRecord
     metadata: Dict[str, str] = Field(default_factory=dict)
+    context_dependency: MeasurementContextDependency = MeasurementContextDependency.UNKNOWN
+    measurement_role: MeasurementRole = MeasurementRole.UNKNOWN
 
     @model_validator(mode="after")
     def validate_payload(self) -> "MeasurementValue":

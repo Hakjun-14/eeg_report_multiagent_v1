@@ -18,7 +18,7 @@ from .final_prose_audit import (
     NumericProvenanceMatch,
     SectionLeakage,
 )
-from .measurement import MeasurementValue, QuantitationValue, StatusValue
+from .measurement import MeasurementContextDependency, MeasurementRole, MeasurementValue, QuantitationValue, StatusValue
 from .provenance import ProvenanceRecord
 from .report import AtomicClaimPlan, ClaimRecord, ClaimSurfaceAction, ReportSection, SurfaceDecision, VerificationRecord
 from .section_contract import SectionRole, TargetReportSection, TargetSectionContract
@@ -27,6 +27,8 @@ from .tooling import ToolInvocationRecord
 
 __all__ = [
     "MeasurementValue",
+    "MeasurementContextDependency",
+    "MeasurementRole",
     "StatusValue",
     "QuantitationValue",
     "ProvenanceRecord",

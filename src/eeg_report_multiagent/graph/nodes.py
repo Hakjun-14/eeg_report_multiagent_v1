@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict
+from typing import Any, Dict
 
 import numpy as np
 
@@ -52,6 +52,86 @@ def _append_log(state: Dict, message: str) -> None:
     state.setdefault("run_log", []).append(message)
 
 
+_EVAL_ONLY_METADATA_KEYS = {
+    "report_json_path_eval_only",
+    "gt_report_json_path",
+    "gt_report_text_path",
+    "reference_report_path",
+    "reference_gt_report_text",
+}
+
+_SAFE_CLINICAL_METADATA_KEYS = {
+    "AgeAtVisit",
+    "Avg_Age",
+    "Gender",
+    "SexDSC",
+    "ProcedureDSC",
+    "ProcedureDSC(Reports)",
+    "VisitTypeDSC",
+    "RecordType",
+    "NumberOfSessions",
+    "site",
+    "split",
+    "split_type",
+}
+
+
+def _safe_clinical_metadata(metadata: Dict[str, Any]) -> Dict[str, str]:
+    return {
+        str(key): "" if value is None else str(value)
+        for key, value in metadata.items()
+        if str(key) in _SAFE_CLINICAL_METADATA_KEYS and str(key) not in _EVAL_ONLY_METADATA_KEYS
+    }
+
+
+def _sanitize_patient_history_text(text: str) -> str:
+    """Keep patient/history context; strip GT EEG detail/impression text."""
+    lowered = text.lower()
+    cut = len(text)
+    for marker in (
+        "\nmethod:",
+        " method:",
+        "\ndetail:",
+        " detail:",
+        "\neeg description",
+        " eeg description",
+        "\nimpression",
+        " impression:",
+        "\ncomparison:",
+        " comparison:",
+        "\nstart time:",
+        " start time:",
+    ):
+        idx = lowered.find(marker)
+        if idx >= 0:
+            cut = min(cut, idx)
+    return text[:cut].strip()
+
+
+def _clinical_context_from_inputs(
+    *,
+    context_json: Dict[str, Any],
+    fallback_text: str,
+    metadata: Dict[str, Any],
+) -> Dict[str, Any]:
+    clinical_text = _sanitize_patient_history_text(str(
+        context_json.get("clinical_history")
+        or context_json.get("patient_history")
+        or context_json.get("patient_history_and_eeg_description")
+        or metadata.get("clinical_history")
+        or fallback_text
+        or ""
+    ))
+    target_sections = context_json.get("target_section_names") or metadata.get("target_section_names") or []
+    return {
+        "patient_history_and_eeg_description": str(clinical_text),
+        "target_section_names": target_sections if isinstance(target_sections, list) else str(target_sections),
+        "context_type": str(context_json.get("context_type", "")),
+        "metadata": _safe_clinical_metadata(metadata),
+        "gt_report_text_included": False,
+    }
+
+
 def load_inputs_node(state: Dict) -> Dict:
     session_dir = Path(state["session_dir"])
     session = load_session_from_processed_dir(session_dir)
@@ -72,6 +152,11 @@ def load_inputs_node(state: Dict) -> Dict:
     state["session"] = session
     state["manifest"] = manifest
     state["note_text"] = note_text
+    state["clinical_context"] = _clinical_context_from_inputs(
+        context_json=context_json,
+        fallback_text=note_text,
+        metadata=state.get("metadata", {}),
+    )
     _append_log(state, f"Loaded session: {session.session_id} with shape {session.signals.shape}")
     return state
 
@@ -167,15 +252,30 @@ def evidence_merge_node(state: Dict) -> Dict:
     )
     if state.get("enable_llm_evidence_grouping", False):
         grouper = LLMEvidenceGrouper()
-        grouping = grouper.run(recording_id=state["manifest"].session_id, measurements=board.measurements)
-        board.shared_evidence_board = grouping["shared_evidence_board"]
+        grouping = grouper.run(
+            recording_id=state["manifest"].session_id,
+            measurements=board.measurements,
+            clinical_context=state.get("clinical_context", {}),
+        )
+        shared_board = board.ensure_shared_evidence_board()
+        existing_ids = {item.evidence_id for item in shared_board.evidence_items}
+        added_llm_items = 0
+        for item in grouping["shared_evidence_board"].evidence_items:
+            if item.evidence_id in existing_ids:
+                continue
+            shared_board.add_evidence(item)
+            existing_ids.add(item.evidence_id)
+            added_llm_items += 1
+        board.shared_evidence_board = shared_board
         state["llm_evidence_grouping"] = {
             key: value for key, value in grouping.items() if key != "shared_evidence_board"
         }
+        state["llm_evidence_grouping"]["added_llm_evidence_items"] = added_llm_items
         _append_log(
             state,
             "LLM evidence grouping completed "
-            f"groups={len(board.shared_evidence_board.evidence_items)} raw_eeg_used={grouping.get('raw_eeg_used')} "
+            f"groups={len(grouping['shared_evidence_board'].evidence_items)} added={added_llm_items} "
+            f"total={len(board.shared_evidence_board.evidence_items)} raw_eeg_used={grouping.get('raw_eeg_used')} "
             f"gt_report_used={grouping.get('gt_report_used')}",
         )
     else:
@@ -212,7 +312,10 @@ def report_synthesize_node(state: Dict) -> Dict:
     claim_plan_override = None
     if state.get("enable_llm_claim_planning", False):
         planner = LLMClaimPlanner()
-        planning = planner.run(state["evidence_board"].ensure_shared_evidence_board())
+        planning = planner.run(
+            state["evidence_board"].ensure_shared_evidence_board(),
+            clinical_context=state.get("clinical_context", {}),
+        )
         claim_plan_override = planning["atomic_claim_plan"]
         state["llm_claim_planning"] = {
             key: value for key, value in planning.items() if key != "atomic_claim_plan"
@@ -263,6 +366,7 @@ def optional_verify_node(state: Dict) -> Dict:
 def finalize_node(state: Dict) -> Dict:
     state["run_artifacts"] = {
         "manifest": state["manifest"],
+        "clinical_context": state.get("clinical_context", {}),
         "scout_summary": state.get("scout_summary", {}),
         "background_measurements": state.get("background_measurements", []),
         "event_measurements": state.get("event_measurements", []),

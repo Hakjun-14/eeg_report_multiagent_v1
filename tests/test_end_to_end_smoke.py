@@ -41,7 +41,11 @@ def test_end_to_end_smoke(tmp_path: Path) -> None:
         "session_dir": str(session_dir),
         "report_json_path": str(report_json),
         "report_text_path": None,
-        "metadata": {"ekg_available": "true", "video_available": "true"},
+        "metadata": {
+            "ekg_available": "true",
+            "video_available": "true",
+            "report_json_path_eval_only": "/not/for/inference/report.json",
+        },
         "verify_claims": True,
         "run_log": [],
     }
@@ -55,5 +59,7 @@ def test_end_to_end_smoke(tmp_path: Path) -> None:
     assert len(out["parser_measurements"]) > 0
     assert out["evidence_board"].session_id == "sub-test_ses-1"
     assert out["evidence_board"].ensure_shared_evidence_board().evidence_items
+    assert out["clinical_context"]["patient_history_and_eeg_description"].startswith("awake state")
+    assert "report_json_path_eval_only" not in out["clinical_context"]["metadata"]
     assert out["detail_section"].text
     assert out["impression_section"].text

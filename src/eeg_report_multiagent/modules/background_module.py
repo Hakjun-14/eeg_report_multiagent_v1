@@ -33,17 +33,25 @@ class BackgroundModule:
                 fs=fs,
                 source_ref=source_ref,
                 channels=channels,
-            ) if tool_name in {"posterior_dominant_rhythm_candidate", "background_organization_proxy"} else self.registry.dispatch(
+            ) if tool_name in {
+                "posterior_dominant_rhythm_candidate",
+                "posterior_dominant_rhythm_spectral_v2",
+                "background_organization_proxy",
+                "bandpower_summary",
+                "slowing_score",
+                "beta_excess_score",
+            } else self.registry.dispatch(
                 tool_name,
                 source_ref=source_ref,
             ) if tool_name in {"background_unavailable_slot_status"} else self.registry.dispatch(
                 tool_name,
                 signal_nct=signal_nct,
-                fs=fs,
                 source_ref=source_ref,
-            ) if tool_name not in {"amplitude_summary"} else self.registry.dispatch(
+                channels=channels,
+            ) if tool_name in {"amplitude_summary"} else self.registry.dispatch(
                 tool_name,
                 signal_nct=signal_nct,
+                fs=fs,
                 source_ref=source_ref,
             )
             invocations.append(rec)

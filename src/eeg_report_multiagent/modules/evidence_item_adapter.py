@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Iterable, List
 
 from eeg_report_multiagent.schemas.agent import AgentDeliberationRecord
-from eeg_report_multiagent.schemas.measurement import MeasurementValue
+from eeg_report_multiagent.schemas.measurement import MeasurementRole, MeasurementValue
 from eeg_report_multiagent.schemas.provenance import ProvenanceRecord, SourceType
 from eeg_report_multiagent.schemas.report import ClaimSurfaceAction
 from eeg_report_multiagent.schemas.section_contract import SectionRole
@@ -21,6 +21,7 @@ _DEBUG_SCORE_MEASUREMENTS = {
     "epileptiform_candidate_likelihood_score",
     "electrographic_seizure_likelihood_score",
     "pdr_candidate_confidence_score",
+    "pdr_v2_support_score",
     "background_ap_organization_score",
     "slowing_score",
     "beta_excess_score",
@@ -75,8 +76,10 @@ def grouped_evidence_items_from_measurements(measurements: Iterable[MeasurementV
 
 def _measurement_group_key(measurement: MeasurementValue) -> str:
     name = measurement.measurement_name
-    if name.startswith("pdr_") or name.startswith("background_ap_organization") or name == "background_reactivity_status":
+    if name in {"pdr_frequency_hz", "pdr_candidate_frequency_hz", "pdr_v2_frequency_hz", "background_reactivity_status"}:
         return "pdr"
+    if name.startswith("pdr_") or name.startswith("background_ap_organization"):
+        return "pdr_support_debug"
     if name == "background_amplitude_range_uv":
         return "background_amplitude"
     if name in {"background_dominant_frequency_hz", "slowing_score"}:
@@ -112,7 +115,7 @@ def _grouped_evidence_item(group_key: str, measurements: list[MeasurementValue])
         evidence_type=evidence_type,
         clinical_target=target,
         value=value,
-        unit=None,
+        unit=_group_unit(measurements),
         normalized_value=value,
         confidence=None,
         reliability=None,
@@ -147,6 +150,8 @@ def _group_classification(
         return ClinicalTarget.EXCESS_BETA, EvidenceType.DERIVED, ClaimSurfaceAction.CAVEAT, "background", [SectionRole.BACKGROUND.value, SectionRole.DETAIL.value, SectionRole.IMPRESSION.value]
     if group_key == "background_bandpower_debug":
         return ClinicalTarget.UNCERTAINTY, EvidenceType.DEBUG, ClaimSurfaceAction.DEBUG_ONLY, "background", []
+    if group_key == "pdr_support_debug":
+        return ClinicalTarget.UNCERTAINTY, EvidenceType.DEBUG, ClaimSurfaceAction.DEBUG_ONLY, "background", []
     if group_key == "state":
         return ClinicalTarget.STATE, EvidenceType.METADATA, ClaimSurfaceAction.ALLOW, "state_protocol", [SectionRole.BACKGROUND.value, SectionRole.DETAIL.value, SectionRole.SLEEP.value]
     if group_key == "protocol":
@@ -165,7 +170,7 @@ def _group_classification(
 def _group_value(group_key: str, measurements: list[MeasurementValue]) -> Any:
     by_name = {measurement.measurement_name: measurement for measurement in measurements}
     if group_key == "pdr":
-        freq = by_name.get("pdr_candidate_frequency_hz")
+        freq = by_name.get("pdr_v2_frequency_hz") or by_name.get("pdr_candidate_frequency_hz")
         return {
             "frequency_hz": _numeric(freq),
             "pdr_supported": (freq.metadata.get("pdr_supported") if freq else None),
@@ -174,6 +179,8 @@ def _group_value(group_key: str, measurements: list[MeasurementValue]) -> Any:
             "symmetry_score": _numeric(by_name.get("pdr_symmetry_score")),
             "reactivity": _status(by_name.get("background_reactivity_status")),
         }
+    if group_key == "pdr_support_debug":
+        return {measurement.measurement_name: _debug_value(measurement) for measurement in measurements}
     if group_key == "background_amplitude":
         measurement = by_name.get("background_amplitude_range_uv")
         return _range_or_value(measurement)
@@ -184,6 +191,24 @@ def _group_value(group_key: str, measurements: list[MeasurementValue]) -> Any:
     if group_key in {"event_candidate", "localization", "epileptiform_morphology", "seizure_evidence"}:
         return {measurement.measurement_name: _debug_value(measurement) for measurement in measurements}
     return {measurement.measurement_name: _debug_value(measurement) for measurement in measurements}
+
+
+def _group_unit(measurements: list[MeasurementValue]) -> str | None:
+    clinical_units = {
+        measurement.quantitation.unit
+        for measurement in measurements
+        if measurement.quantitation is not None
+        and measurement.quantitation.unit
+        and measurement.measurement_role == MeasurementRole.CLINICAL_MEASUREMENT
+    }
+    if len(clinical_units) == 1:
+        return sorted(clinical_units)[0]
+    units = {
+        measurement.quantitation.unit
+        for measurement in measurements
+        if measurement.quantitation is not None and measurement.quantitation.unit
+    }
+    return sorted(units)[0] if len(units) == 1 else None
 
 
 def _numeric(measurement: MeasurementValue | None) -> float | None:

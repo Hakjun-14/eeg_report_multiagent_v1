@@ -13,6 +13,7 @@ from eeg_report_multiagent.io import make_celm_generated_report
 from eeg_report_multiagent.llm import OpenAIReportSynthesisAdapter
 from eeg_report_multiagent.modules import EvidenceBoardLLMReportSynthesizer
 from eeg_report_multiagent.schemas.evidence import EvidenceBoard
+from eeg_report_multiagent.schemas.report import AtomicClaimPlan
 
 
 SUMMARY_COLUMNS = [
@@ -96,6 +97,88 @@ def _target_sections(artifact_dir: Path) -> List[str]:
     return [str(section) for section in sections]
 
 
+_EVAL_ONLY_METADATA_KEYS = {
+    "report_json_path_eval_only",
+    "gt_report_json_path",
+    "gt_report_text_path",
+    "reference_report_path",
+    "reference_gt_report_text",
+}
+
+_SAFE_CLINICAL_METADATA_KEYS = {
+    "AgeAtVisit",
+    "Avg_Age",
+    "Gender",
+    "SexDSC",
+    "ProcedureDSC",
+    "ProcedureDSC(Reports)",
+    "VisitTypeDSC",
+    "RecordType",
+    "NumberOfSessions",
+    "site",
+    "split",
+    "split_type",
+}
+
+
+def _clinical_context(artifact_dir: Path) -> Dict[str, Any]:
+    context = _read_json(artifact_dir / "study_context.json")
+    metadata = context.get("metadata") if isinstance(context.get("metadata"), dict) else {}
+    safe_metadata = {
+        str(key): "" if value is None else str(value)
+        for key, value in metadata.items()
+        if str(key) in _SAFE_CLINICAL_METADATA_KEYS and str(key) not in _EVAL_ONLY_METADATA_KEYS
+    }
+    clinical_text = _sanitize_patient_history_text(str(
+        context.get("clinical_history")
+        or context.get("patient_history")
+        or metadata.get("clinical_history")
+        or ""
+    ))
+    target_sections = context.get("target_section_names") or metadata.get("target_section_names") or []
+    return {
+        "patient_history_and_eeg_description": str(clinical_text),
+        "target_section_names": target_sections if isinstance(target_sections, list) else str(target_sections),
+        "context_type": str(context.get("context_type", "")),
+        "metadata": safe_metadata,
+        "gt_report_text_included": False,
+    }
+
+
+def _sanitize_patient_history_text(text: str) -> str:
+    """Keep patient/history context; strip GT EEG detail/impression text."""
+    lowered = text.lower()
+    cut = len(text)
+    for marker in (
+        "\nmethod:",
+        " method:",
+        "\ndetail:",
+        " detail:",
+        "\neeg description",
+        " eeg description",
+        "\nimpression",
+        " impression:",
+        "\ncomparison:",
+        " comparison:",
+        "\nstart time:",
+        " start time:",
+    ):
+        idx = lowered.find(marker)
+        if idx >= 0:
+            cut = min(cut, idx)
+    return text[:cut].strip()
+
+
+def _atomic_claim_plan(artifact_dir: Path) -> List[AtomicClaimPlan] | None:
+    path = artifact_dir / "atomic_claim_plan.json"
+    if not path.exists():
+        return None
+    payload = _read_json(path)
+    if not isinstance(payload, list):
+        raise ValueError(f"atomic_claim_plan.json is not a list in {artifact_dir}")
+    return [AtomicClaimPlan.model_validate(item) for item in payload]
+
+
 def run_d_synthesis_batch(
     source_batch_root: Path,
     output_root: Path,
@@ -146,7 +229,13 @@ def run_d_synthesis_batch(
                 raise RuntimeError(f"Source row is not successful: {source_row.get('status')}")
             board = EvidenceBoard.model_validate_json((source_artifact_dir / "evidence_board.json").read_text(encoding="utf-8"))
             target_sections = _target_sections(source_artifact_dir)
-            result = synth.synthesize_celm_sections(board, target_sections)
+            claim_plan = _atomic_claim_plan(source_artifact_dir)
+            result = synth.synthesize_celm_sections(
+                board,
+                target_sections,
+                clinical_context=_clinical_context(source_artifact_dir),
+                claim_plan_override=claim_plan,
+            )
             generated_report = make_celm_generated_report(
                 target_section_names=target_sections,
                 detail_text="",
@@ -155,7 +244,13 @@ def run_d_synthesis_batch(
             )
 
             output_artifact_dir.mkdir(parents=True, exist_ok=True)
-            for filename in ["study_context.json", "evidence_board.json", "agent_deliberations.json"]:
+            for filename in [
+                "study_context.json",
+                "evidence_board.json",
+                "agent_deliberations.json",
+                "atomic_claim_plan.json",
+                "surface_decisions.json",
+            ]:
                 src = source_artifact_dir / filename
                 if src.exists():
                     shutil.copy2(src, output_artifact_dir / filename)
