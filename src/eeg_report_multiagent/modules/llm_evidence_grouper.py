@@ -155,6 +155,16 @@ class LLMEvidenceGrouper:
         measurements: List[MeasurementValue],
     ) -> ClinicalTarget:
         names = {measurement.measurement_name for measurement in measurements}
+        if names.intersection(
+            {
+                "event_waveform_amplitude_peak_to_peak_typical_uv",
+                "event_waveform_amplitude_peak_to_peak_range_uv",
+                "event_waveform_dominant_frequency_hz",
+                "event_waveform_duration_typical_sec",
+                "event_waveform_duration_upper_sec",
+            }
+        ):
+            return ClinicalTarget.EPILEPTIFORM_MORPHOLOGY
         if (
             target == ClinicalTarget.BACKGROUND_SLOWING
             and "background_amplitude_range_uv" in names
@@ -174,6 +184,7 @@ class LLMEvidenceGrouper:
                 for measurement in measurements
                 if measurement.measurement_role == MeasurementRole.CLINICAL_MEASUREMENT
                 or "reactivity" in measurement.measurement_name.lower()
+                or measurement.measurement_name in {"pdr_symmetry_status", "background_organization_status"}
             ]
             return reportable or measurements
         return measurements
@@ -182,9 +193,20 @@ class LLMEvidenceGrouper:
         if target == ClinicalTarget.PDR:
             return self._pdr_group_value(measurements)
         if target == ClinicalTarget.BACKGROUND_AMPLITUDE:
-            amplitude = self._first_named_measurement(measurements, "background", "amplitude")
-            value = self._measurement_value(amplitude) if amplitude is not None else None
-            return value if isinstance(value, dict) else {"background_amplitude_range_uv": value}
+            return {
+                "background_amplitude_range_uv": self._measurement_value(
+                    self._first_exact_name(measurements, "background_amplitude_range_uv")
+                ),
+                "background_amplitude_typical_uv": self._measurement_value(
+                    self._first_exact_name(measurements, "background_amplitude_typical_uv")
+                ),
+                "background_amplitude_peak_to_peak_typical_uv": self._measurement_value(
+                    self._first_exact_name(measurements, "background_amplitude_peak_to_peak_typical_uv")
+                ),
+                "background_amplitude_best_supported_uv": self._measurement_value(
+                    self._first_exact_name(measurements, "background_amplitude_best_supported_uv")
+                ),
+            }
 
         values: Dict[str, Any] = {}
         for measurement in measurements:
@@ -193,6 +215,12 @@ class LLMEvidenceGrouper:
                 continue
             values[measurement.measurement_name] = value
         return values
+
+    def _first_exact_name(self, measurements: List[MeasurementValue], measurement_name: str) -> MeasurementValue | None:
+        for measurement in measurements:
+            if measurement.measurement_name == measurement_name:
+                return measurement
+        return None
 
     def _pdr_group_value(self, measurements: List[MeasurementValue]) -> Dict[str, Any]:
         """Keep reportable PDR values separate from support/debug measurements."""
@@ -205,10 +233,18 @@ class LLMEvidenceGrouper:
             values["frequency_hz"] = float(freq)
             if 8.0 <= float(freq) <= 13.0 and self._has_posterior_provenance(measurements):
                 values["pdr_supported"] = "true"
+        symmetry = self._first_named_value(measurements, "pdr_symmetry_status")
+        if isinstance(symmetry, str):
+            values["symmetry"] = symmetry
+        organization = self._first_named_value(measurements, "background_organization_status")
+        if isinstance(organization, str):
+            values["organization"] = organization
         values["reactivity"] = self._first_named_value(measurements, "reactivity") or "unknown"
         return values
 
-    def _measurement_value(self, measurement: MeasurementValue) -> Any:
+    def _measurement_value(self, measurement: MeasurementValue | None) -> Any:
+        if measurement is None:
+            return None
         if measurement.quantitation is not None:
             q = measurement.quantitation
             if q.exact is not None:

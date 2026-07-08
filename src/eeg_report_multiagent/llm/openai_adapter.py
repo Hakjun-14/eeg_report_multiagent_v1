@@ -161,11 +161,31 @@ REPORT_SYNTHESIS_SCHEMA: Dict[str, Any] = {
                 ],
             },
         },
+        "rendered_claim_ids": {"type": "array", "items": {"type": "string"}},
+        "omitted_claims": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "claim_id": {"type": "string"},
+                    "reason": {"type": "string"},
+                },
+                "required": ["claim_id", "reason"],
+            },
+        },
         "global_limitations": {"type": "array", "items": {"type": "string"}},
         "raw_eeg_used": {"type": "boolean"},
         "gt_report_used": {"type": "boolean"},
     },
-    "required": ["report_sections", "global_limitations", "raw_eeg_used", "gt_report_used"],
+    "required": [
+        "report_sections",
+        "rendered_claim_ids",
+        "omitted_claims",
+        "global_limitations",
+        "raw_eeg_used",
+        "gt_report_used",
+    ],
 }
 
 
@@ -277,10 +297,34 @@ CLAIM_PLANNING_SCHEMA: Dict[str, Any] = {
                 ],
             },
         },
+        "coverage_decisions": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "coverage_id": {"type": "string"},
+                    "evidence_ids": {"type": "array", "items": {"type": "string"}},
+                    "decision": {
+                        "type": "string",
+                        "enum": ["claim_created", "blocked", "debug_only", "omitted"],
+                    },
+                    "linked_plan_id": {"type": "string"},
+                    "reason": {"type": "string"},
+                },
+                "required": [
+                    "coverage_id",
+                    "evidence_ids",
+                    "decision",
+                    "linked_plan_id",
+                    "reason",
+                ],
+            },
+        },
         "raw_eeg_used": {"type": "boolean"},
         "gt_report_used": {"type": "boolean"},
     },
-    "required": ["summary", "atomic_claims", "raw_eeg_used", "gt_report_used"],
+    "required": ["summary", "atomic_claims", "coverage_decisions", "raw_eeg_used", "gt_report_used"],
 }
 
 
@@ -494,13 +538,23 @@ class OpenAIReportSynthesisAdapter:
                 "Requested section names",
                 "Allowed or caveated AtomicClaimPlan entries",
                 "SurfaceDecision summaries",
+                "Claim render checklist containing every required claim_id",
                 "Evidence limitations attached to those claims",
+                "Clinical reference IDs and short rules linked to each claim as interpretation standards",
             ],
             guidelines=[
                 "Use only the allowed or caveated atomic_claim_plans in the payload.",
                 "Follow the CELM-style section-description and patient-history formatting example for report style only.",
                 "Use the payload section_descriptions to understand each requested section's expected content.",
-                "For each atomic claim, if surface_value_requirements is non-empty, include at least one listed value in the generated sentence unless it is unknown or unsafe.",
+                "Use clinical_references only as interpretation standards for the linked claim; they are not patient-specific evidence.",
+                "Do not cite, quote, or invent external references in the report prose unless explicitly requested.",
+                "Use claim_render_checklist as the required rendering checklist.",
+                "Every supplied atomic_claim_plan with surface_action allow or caveat is a required coverage item; include every such claim in exactly one appropriate requested section unless section routing makes it impossible.",
+                "For every claim_render_checklist item, either include the claim_id in rendered_claim_ids or include it in omitted_claims with a short reason.",
+                "For each atomic claim, if must_render_values or surface_value_requirements is non-empty, include those listed values in the generated sentence unless they are unknown or unsafe.",
+                "numeric_claims is the authoritative numeric rendering contract: for every numeric_claim with render_required=true, copy its render_text exactly into the sentence for that claim.",
+                "Do not widen, round away, replace, or invent numeric values; if a numeric_claim is unsafe or impossible to render, omit that claim and explain it in omitted_claims.",
+                "Do not collapse multiple atomic_claim_plans into one sentence if doing so drops a must_render_value, evidence limitation, or caveat.",
                 "When an atomic claim has reportable_evidence_values or linked_reportable_evidence values, preserve clinically meaningful values and units in the report sentence unless the value is marked unknown or unsafe.",
                 "If proposed_text is generic but linked reportable evidence contains a safe numeric value, rewrite the sentence to include that value with its unit and the same caveat level.",
                 "Do not infer new EEG evidence or clinical claims from general medical knowledge.",
@@ -515,7 +569,7 @@ class OpenAIReportSynthesisAdapter:
             ],
             output_format=(
                 "Return only JSON matching eeg_evidence_report_synthesis: report_sections, "
-                "global_limitations, raw_eeg_used=false, and gt_report_used=false."
+                "rendered_claim_ids, omitted_claims, global_limitations, raw_eeg_used=false, and gt_report_used=false."
             ),
             payload=evidence_payload,
             style_example=REPORT_SYNTHESIS_STYLE_EXAMPLE,
@@ -560,6 +614,120 @@ class OpenAIReportSynthesisAdapter:
         result = json.loads(text)
         result["_response_id"] = data.get("id")
         return result
+
+    def synthesize_from_evidence_view(self, evidence_payload: Dict[str, Any]) -> Dict[str, Any]:
+        # Diagnostic ablation path: evidence view -> report, bypassing claims/surface decisions.
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise RuntimeError("OPENAI_API_KEY is not set")
+
+        is_slot_checklist = evidence_payload.get("diagnostic_mode") == "slot_checklist_report_synthesis"
+        task = (
+            "Generate the specified sections of a formal clinical EEG report using the provided "
+            "section_slot_checklist. This diagnostic ablation tests whether composing available "
+            "evidence into section-level clinical slots improves report coverage."
+            if is_slot_checklist
+            else (
+                "Generate the specified sections of a formal clinical EEG report using only the "
+                "provided surface-safe EvidenceItem views. This diagnostic ablation bypasses "
+                "AtomicClaimPlan and SurfaceDecision to test evidence sufficiency."
+            )
+        )
+        provided_data = [
+            "Patient history and EEG description clinical context",
+            "Requested section names",
+            "Section slot checklist with required slots, values, units, and source evidence IDs",
+            "Surface-safe evidence_for_report entries used to build the slots",
+            "Forbidden debug/proxy/internal surface terms",
+        ] if is_slot_checklist else [
+            "Patient history and EEG description clinical context",
+            "Requested section names",
+            "Surface-safe evidence_for_report entries",
+            "Evidence IDs, clinical targets, values, units, and provenance summaries",
+            "Forbidden debug/proxy/internal surface terms",
+        ]
+        checklist_guidelines = [
+            "Use section_slot_checklist as the primary writing plan.",
+            "For every non-null slot with status present, supported, not_performed, absent, or available, write the corresponding clinical phrase exactly once unless forbidden.",
+            "Compose related background slots into one GT-like EEG background sentence when possible: PDR frequency, amplitude, symmetry, reactivity, and organization.",
+            "Compose protocol/status slots into concise clinical prose; not performed is reportable protocol information.",
+            "Compose state slots into concise prose; do not invent sleep architecture when the slot says absent or unknown.",
+            "If a slot has evidence_ids, add them to supporting_evidence_ids, but do not print evidence IDs in section_text.",
+            "If a slot value is unknown, do not turn it into a normal or abnormal clinical claim.",
+            "Do not add filler negative statements such as 'no further details', 'not established', or 'no definitive abnormalities' unless an explicit absent/negative slot supports that exact claim.",
+            "If a slot group is absent from section_slot_checklist, do not mention that clinical domain.",
+            "Do not call activity normal, expected, benign, or abnormal unless that interpretation is explicitly present in a slot value.",
+            "Do not use the phrase epileptiform event, epileptiform activity, or epileptiform discharge for transient_event_context slots unless the slot value explicitly contains epileptiform.",
+        ] if is_slot_checklist else []
+        prompt = _clinical_stage_prompt_text(
+            task=task,
+            pipeline_position="Diagnostic report synthesis ablation.",
+            previous_stage="SharedEvidenceBoard produced patient-specific EvidenceItems with values and provenance.",
+            next_stage="Final prose auditing will check numeric provenance, debug leakage, seizure gating, and section consistency.",
+            provided_data=provided_data,
+            guidelines=[
+                "Use only the diagnostic payload supplied here.",
+                "Follow the CELM-style section-description and patient-history formatting example for report style only.",
+                "Do not use GT/reference report text; it is not present and must not be inferred.",
+                "Do not infer new EEG evidence, normal findings, seizures, localization, or protocol status from general knowledge.",
+                "Preserve clinically meaningful values and units exactly when they are present and safe.",
+                "Every numeric statement must be copied from a slot value or evidence_for_report value with a supporting evidence_id.",
+                *checklist_guidelines,
+                "Do not mention candidate burden, support score, likelihood score, field concentration ratio, laterality index, train duration, debug payload, or raw reviewer text.",
+                "Do not call global or boundary frequency a posterior dominant rhythm.",
+                "Do not claim definite epileptiform discharges or seizures from event candidates alone.",
+                "Do not claim seizure absence unless seizure-specific evidence or validated metadata evidence is present.",
+                "Prefer clinically concise EEG prose, but do not omit safe reportable values that are present in evidence_for_report.",
+                "Populate supporting_evidence_ids for each generated section with the evidence IDs used in that section.",
+                "Do not write evidence IDs inside section_text; evidence IDs belong only in supporting_evidence_ids.",
+                "If evidence is insufficient for a requested section, state that no surface-safe evidence is available for that section.",
+                "Return exactly the requested section names where possible.",
+            ],
+            output_format=(
+                "Return only JSON matching eeg_evidence_report_synthesis: report_sections, "
+                "global_limitations, raw_eeg_used=false, and gt_report_used=false."
+            ),
+            payload=evidence_payload,
+            style_example=REPORT_SYNTHESIS_STYLE_EXAMPLE,
+        )
+        body = {
+            "model": self.model,
+            "input": [
+                {"role": "system", "content": CLINICAL_NEUROPHYSIOLOGIST_SYSTEM},
+                {"role": "user", "content": prompt},
+            ],
+            "text": {
+                "format": {
+                    "type": "json_schema",
+                    "name": "eeg_evidence_report_synthesis",
+                    "strict": True,
+                    "schema": REPORT_SYNTHESIS_SCHEMA,
+                }
+            },
+        }
+        request = urllib.request.Request(
+            "https://api.openai.com/v1/responses",
+            data=json.dumps(body).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout_sec) as response:
+                data = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="ignore")
+            raise RuntimeError(f"OpenAI evidence-direct report synthesis failed: {exc.code}: {detail}") from exc
+
+        text = self._extract_text(data)
+        if not text:
+            raise RuntimeError("OpenAI evidence-direct report synthesis returned no text payload")
+        result = json.loads(text)
+        result["_response_id"] = data.get("id")
+        return result
+
 
     def _extract_text(self, data: Dict[str, Any]) -> str:
         if isinstance(data.get("output_text"), str):
@@ -696,6 +864,7 @@ class OpenAIClaimPlanningAdapter:
                 "Typed EvidenceItems",
                 "Evidence values and normalized values",
                 "Time and space provenance",
+                "Claim coverage checklist for evidence that must receive a planning decision",
                 "Allowed sections and allowed surface actions",
             ],
             guidelines=[
@@ -706,14 +875,23 @@ class OpenAIClaimPlanningAdapter:
                 "Do not mention candidate burden, burden ratio, support score, likelihood score, field concentration ratio, laterality index, bifrontal ratio, ratio of, train duration, slowing score, score of, alpha ratio, symmetry score, confidence score, confidence assessment, confidence in this assessment, confidence in the determination, support being marked, analyzed scores, concentration ratios, missing_slots, or values_preview.",
                 "Do not create seizure claims unless linked evidence has clinical_target=seizure_evidence and evidence_type is direct, derived, or metadata.",
                 "Do not call global or boundary 0.5 Hz activity a PDR.",
+                "The payload may include claim_coverage_checklist. Treat it as a minimum coverage checklist, not an exhaustive list of allowed claims.",
+                "For every checklist item, return exactly one AtomicClaimPlan decision using the listed evidence_ids: allow, caveat, block, or debug_only.",
+                "For every checklist item, also return one coverage_decisions entry with decision=claim_created, blocked, debug_only, or omitted.",
+                "If decision=claim_created, linked_plan_id must match an atomic_claims.plan_id. If no claim is safe, use blocked/debug_only/omitted with a concrete reason.",
+                "Whether or not a checklist is present, inspect all EvidenceItems and create AtomicClaimPlan decisions for clinically meaningful direct, derived, or metadata evidence.",
+                "Do not omit non-checklist evidence merely because it is not in claim_coverage_checklist; if it is unsafe or proxy/internal, return block/debug_only with rationale.",
+                "If a checklist item has recommended_surface_action=allow or caveat and the evidence is safe, do not silently omit it; create a concise claim with the supplied safe values.",
+                "If a checklist item is unsafe, proxy-only, internal-score-only, or insufficiently supported, still create a block/debug_only AtomicClaimPlan with rationale instead of omitting it.",
                 "If an EvidenceItem has clinical_target=pdr with frequency_hz in 8-13 Hz and pdr_supported=true, create an allow/caveat PDR claim using the frequency value.",
                 "If an EvidenceItem has clinical_target=background_amplitude with a uV range, create an allow/caveat amplitude claim using the range.",
+                "If metadata EvidenceItems contain non-unknown state or protocol status, create allow/caveat status claims; do not treat non-numeric metadata as numeric_not_reportable.",
                 "Do not turn background_dominant_frequency_hz=0.5 Hz, slowing_score, beta_excess_score, or other internal/proxy measurements into allow claims.",
                 "Use caveated wording when state, morphology, localization, or reactivity support is incomplete.",
                 "Return block/debug_only for proxy or internal evidence that cannot safely surface.",
             ],
             output_format=(
-                "Return only JSON matching eeg_claim_planning: summary, atomic_claims, "
+                "Return only JSON matching eeg_claim_planning: summary, atomic_claims, coverage_decisions, "
                 "raw_eeg_used=false, and gt_report_used=false. Do not generate full report sections."
             ),
             payload=payload,

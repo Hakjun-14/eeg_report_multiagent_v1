@@ -37,6 +37,7 @@ class BackgroundModule:
                 "posterior_dominant_rhythm_candidate",
                 "posterior_dominant_rhythm_spectral_v2",
                 "background_organization_proxy",
+                "state_signal_summary",
                 "bandpower_summary",
                 "slowing_score",
                 "beta_excess_score",

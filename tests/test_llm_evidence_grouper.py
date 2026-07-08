@@ -219,5 +219,7 @@ def test_llm_evidence_grouper_corrects_amplitude_target_when_llm_mislabels_it():
 
     item = result["shared_evidence_board"].evidence_items[0]
     assert item.clinical_target == ClinicalTarget.BACKGROUND_AMPLITUDE
-    assert item.value == {"lower": 28.1, "upper": 43.9}
+    assert item.value["background_amplitude_range_uv"] == {"lower": 28.1, "upper": 43.9}
+    assert item.value["background_amplitude_typical_uv"] is None
+    assert item.value["background_amplitude_peak_to_peak_typical_uv"] is None
     assert item.unit == "uV"

@@ -132,6 +132,29 @@ def _clinical_context_from_inputs(
     }
 
 
+def _parser_note_text_from_inputs(
+    *,
+    context_json: Dict[str, Any],
+    fallback_text: str,
+    metadata: Dict[str, Any],
+) -> str:
+    """Return safe clinical context text for parser-only status extraction.
+
+    CELM-compatible study_context stores usable clinical history under
+    ``clinical_history`` rather than ``note_text``. The parser should see that
+    safe context, but it must not fall back to GT EEG detail/impression text
+    when those are only evaluation inputs.
+    """
+
+    return str(
+        context_json.get("clinical_history")
+        or context_json.get("patient_history")
+        or metadata.get("clinical_history")
+        or fallback_text
+        or ""
+    )
+
+
 def load_inputs_node(state: Dict) -> Dict:
     session_dir = Path(state["session_dir"])
     session = load_session_from_processed_dir(session_dir)
@@ -139,7 +162,12 @@ def load_inputs_node(state: Dict) -> Dict:
     context_text_path = state.get("study_context_text_path") or state.get("report_text_path")
     context_json = load_report_json(Path(context_json_path) if context_json_path else None)
     context_text = load_report_text(Path(context_text_path) if context_text_path else None)
-    note_text = get_note_text(context_json, fallback_text=context_text)
+    raw_note_text = get_note_text(context_json, fallback_text=context_text)
+    note_text = _parser_note_text_from_inputs(
+        context_json=context_json,
+        fallback_text=raw_note_text,
+        metadata=state.get("metadata", {}),
+    )
 
     manifest = build_session_manifest(
         session=session,

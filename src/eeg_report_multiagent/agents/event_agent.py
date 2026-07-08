@@ -13,6 +13,8 @@ class EventAgent:
                 [
                     "burst_train_duration_estimate",
                     "channel_spread_laterality_summary",
+                    "event_waveform_numeric_v2",
+                    "event_spatiomorphology_v2",
                     "event_peak_topography_localizer",
                     "focality_bifrontal_summary",
                     "event_type_separation_classifier",

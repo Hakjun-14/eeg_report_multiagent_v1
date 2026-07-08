@@ -47,6 +47,15 @@ def _exact(mid: str, name: str, value: float, unit: str = "score", prov: Provena
     )
 
 
+def _cat(mid: str, name: str, value: str, prov: ProvenanceRecord | None = None) -> MeasurementValue:
+    return MeasurementValue(
+        measurement_id=mid,
+        measurement_name=name,
+        categorical_value=value,
+        provenance=prov or _prov(),
+    )
+
+
 def test_evidence_item_validation_rejects_missing_and_invalid_enums() -> None:
     with pytest.raises(ValidationError):
         EvidenceItem(
@@ -99,6 +108,32 @@ def test_measurement_grouped_adapter_conservative_mappings() -> None:
     assert by_id["evgrp_pdr"].clinical_target == ClinicalTarget.PDR
     assert by_id["evgrp_pdr"].reportability == ClaimSurfaceAction.CAVEAT
     assert by_id["evgrp_pdr"].space_provenance["region"] == "occipital"
+
+
+def test_localization_and_morphology_v2_group_as_caveated_safe_evidence() -> None:
+    prov = _prov(channels=["F3", "F7", "T3"], region="frontotemporal", side="left", windows=[1])
+    measurements = [
+        _cat("m_maxima", "event_electrode_maxima_v2", "F3,F7,T3", prov),
+        _cat("m_region", "event_region_v2", "frontotemporal", prov),
+        _cat("m_laterality", "event_laterality_v2", "left", prov),
+        _cat("m_pattern", "event_spatial_pattern_v2", "left frontotemporal predominance, maximal at F3/F7/T3", prov),
+        _cat("m_morph", "event_morphology_descriptor_v2", "sharp_transient_like", prov),
+    ]
+
+    board = build_shared_evidence_board(recording_id="s", measurements=measurements)
+    by_id = {item.evidence_id: item for item in board.evidence_items}
+
+    loc = by_id["evgrp_localization_v2"]
+    morph = by_id["evgrp_epileptiform_morphology_v2"]
+    assert loc.evidence_type == EvidenceType.DERIVED
+    assert loc.clinical_target == ClinicalTarget.LOCALIZATION
+    assert loc.reportability == ClaimSurfaceAction.CAVEAT
+    assert loc.value["spatial_pattern"].startswith("left frontotemporal")
+    assert loc.space_provenance["electrode_maxima"] == ["F3", "F7", "T3"]
+    assert morph.evidence_type == EvidenceType.DERIVED
+    assert morph.clinical_target == ClinicalTarget.EPILEPTIFORM_MORPHOLOGY
+    assert morph.reportability == ClaimSurfaceAction.CAVEAT
+    assert morph.value["morphology_descriptor"] == "sharp_transient_like"
 
 
 def test_pdr_group_splits_primary_frequency_from_proxy_support() -> None:

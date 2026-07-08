@@ -41,6 +41,9 @@ class AtomicClaimPlan(BaseModel):
     allowed_sections: List[str] = Field(default_factory=list)
     forbidden_sections: List[str] = Field(default_factory=list)
     clinical_phrase_template_id: Optional[str] = None
+    surface_safe_values: List[dict[str, Any]] = Field(default_factory=list)
+    must_render_values: List[str] = Field(default_factory=list)
+    numeric_claims: List[dict[str, Any]] = Field(default_factory=list)
     debug_payload: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -60,6 +63,7 @@ class SurfaceDecision(BaseModel):
     rationale: str
     hard_deny_reasons: List[str] = Field(default_factory=list)
     evidence_ids: List[str] = Field(default_factory=list)
+    clinical_reference_ids: List[str] = Field(default_factory=list)
     caveat: Optional[str] = None
     debug_payload: dict[str, Any] = Field(default_factory=dict)
     decided_by: str = "surface_policy"

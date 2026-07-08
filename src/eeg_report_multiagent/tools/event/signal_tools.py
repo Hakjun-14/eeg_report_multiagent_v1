@@ -4,12 +4,14 @@ from typing import List, Tuple
 
 import numpy as np
 
-from eeg_report_multiagent.schemas.measurement import MeasurementValue
+from eeg_report_multiagent.schemas.measurement import MeasurementValue, StatusSemantic
 from eeg_report_multiagent.tools.common import (
     make_categorical_measurement,
     make_distribution_measurement,
     make_exact_measurement,
     make_provenance,
+    make_range_measurement,
+    make_status_measurement,
     make_upper_bound_measurement,
 )
 
@@ -56,6 +58,84 @@ def transient_candidate_score(signal_nct: np.ndarray, source_ref: str) -> List[M
             provenance=make_provenance(
                 tool_name="transient_candidate_score",
                 function_name="transient_candidate_score",
+                source_ref=source_ref,
+                window_indices=range(signal_nct.shape[0]),
+            ),
+        ),
+    ]
+
+
+def spike_wave_candidate_score(signal_nct: np.ndarray, window_seconds: int, source_ref: str) -> List[MeasurementValue]:
+    """Rank windows for rhythmic spike-wave-like activity before numeric extraction.
+
+    The legacy transient score mostly finds large or sharp windows. This score
+    adds a bounded rhythmic prior so waveform numeric extraction is less likely
+    to summarize slow drifts or high-amplitude artifacts.
+    """
+    if signal_nct.size == 0:
+        return []
+    n_windows, _n_channels, n_samples = signal_nct.shape
+    fs = float(n_samples) / float(window_seconds) if window_seconds > 0 else 0.0
+    if fs <= 0:
+        return []
+
+    x = signal_nct.astype(np.float32) * _infer_uv_scale(signal_nct)
+    x = x - np.median(x, axis=-1, keepdims=True)
+    window = np.hanning(n_samples).astype(np.float32)
+    spectrum = np.abs(np.fft.rfft(x * window[None, None, :], axis=-1)) ** 2
+    freqs = np.fft.rfftfreq(n_samples, d=1.0 / fs)
+
+    def band_power(low: float, high: float) -> np.ndarray:
+        mask = (freqs >= low) & (freqs <= high)
+        if not np.any(mask):
+            return np.zeros((n_windows, signal_nct.shape[1]), dtype=float)
+        return np.mean(spectrum[:, :, mask], axis=-1)
+
+    spike_wave_power = band_power(2.0, 7.0)
+    slow_power = band_power(0.5, 1.5)
+    alpha_beta_power = band_power(8.0, 20.0)
+    band_ratio = spike_wave_power / (slow_power + alpha_beta_power + 1e-12)
+    top_band_ratio = np.percentile(band_ratio, 90, axis=1)
+
+    deriv = np.diff(x, axis=-1)
+    sharpness = np.percentile(np.abs(deriv), 95, axis=(1, 2))
+    p2p = np.percentile(x, 95, axis=-1) - np.percentile(x, 5, axis=-1)
+    top_p2p = np.percentile(p2p, 95, axis=1)
+    typical_p2p = np.median(p2p, axis=1)
+    field_balance = typical_p2p / (top_p2p + 1e-6)
+
+    def robust_z(values: np.ndarray) -> np.ndarray:
+        med = np.median(values)
+        mad = np.median(np.abs(values - med)) + 1e-6
+        return (values - med) / mad
+
+    artifact_penalty = 1.0 / (1.0 + np.maximum(0.0, (top_p2p - 1000.0) / 500.0) ** 2)
+    rhythmic_score = np.maximum(0.0, robust_z(np.log1p(top_band_ratio)))
+    sharp_score = np.maximum(0.0, robust_z(np.log1p(sharpness)))
+    field_score = np.clip(field_balance, 0.0, 1.0)
+    score = (0.60 * rhythmic_score + 0.25 * sharp_score + 0.15 * field_score) * artifact_penalty
+
+    return [
+        make_distribution_measurement(
+            measurement_id="m_spike_wave_candidate_score_distribution",
+            measurement_name="spike_wave_candidate_score_distribution",
+            values=[float(v) for v in score],
+            unit="score",
+            provenance=make_provenance(
+                tool_name="spike_wave_candidate_score",
+                function_name="spike_wave_candidate_score",
+                source_ref=source_ref,
+                window_indices=range(signal_nct.shape[0]),
+            ),
+        ),
+        make_exact_measurement(
+            measurement_id="m_spike_wave_candidate_burden_ratio",
+            measurement_name="spike_wave_candidate_burden_ratio",
+            value=float(np.mean(score > np.percentile(score, 90))) if score.size else 0.0,
+            unit="ratio",
+            provenance=make_provenance(
+                tool_name="spike_wave_candidate_score",
+                function_name="spike_wave_candidate_score",
                 source_ref=source_ref,
                 window_indices=range(signal_nct.shape[0]),
             ),
@@ -287,6 +367,630 @@ def _topography_label_from_event_field(top_channels: List[str], active_channels:
     return f"{side}_multiregional"
 
 
+def _region_from_label(label: str) -> str:
+    for region in ("frontotemporal", "temporal", "frontal", "posterior", "multiregional"):
+        if region in label:
+            return region
+    return "unknown"
+
+
+def _laterality_from_label(label: str) -> str:
+    if label.startswith("left"):
+        return "left"
+    if label.startswith("right"):
+        return "right"
+    if label.startswith("bilateral") or label.startswith("generalized"):
+        return "bilateral"
+    return "unknown"
+
+
+def _spatial_pattern_phrase(laterality: str, region: str, electrode_maxima: List[str]) -> str:
+    if not electrode_maxima or region == "unknown":
+        return "spatial field not localizable"
+    side = {
+        "left": "left",
+        "right": "right",
+        "bilateral": "bilateral",
+    }.get(laterality, "")
+    prefix = f"{side} {region}".strip()
+    maxima = "/".join(electrode_maxima[:3])
+    return f"{prefix} predominance, maximal at {maxima}"
+
+
+def _peak_field_summary(
+    signal_nct: np.ndarray,
+    channels: List[str],
+    suspicious_windows: List[int],
+    *,
+    peak_context_samples: int = 50,
+    max_peaks: int = 12,
+) -> tuple[List[int], List[int], List[str], List[str], np.ndarray]:
+    focused_windows = _sanitize_windows(suspicious_windows, signal_nct.shape[0])
+    x = signal_nct[focused_windows].astype(np.float32) * _infer_uv_scale(signal_nct)
+    x = x - np.median(x, axis=-1, keepdims=True)
+    if x.size == 0:
+        return [], [], [], [], np.zeros((len(channels),), dtype=float)
+
+    dx = np.diff(x, axis=-1, prepend=x[:, :, :1])
+    amplitude_score = np.max(np.abs(x), axis=1)
+    sharpness_score = np.max(np.abs(dx), axis=1)
+    sample_score = amplitude_score + 0.50 * sharpness_score
+
+    peak_rows: List[Tuple[int, int, float]] = []
+    for local_idx, window_idx in enumerate(focused_windows):
+        peak_sample = int(np.argmax(sample_score[local_idx]))
+        peak_strength = float(sample_score[local_idx, peak_sample])
+        peak_rows.append((local_idx, int(window_idx), peak_strength))
+    peak_rows = sorted(peak_rows, key=lambda item: item[2], reverse=True)[: max(1, int(max_peaks))]
+
+    event_fields = []
+    peak_window_indices: List[int] = []
+    peak_sample_indices: List[int] = []
+    for local_idx, window_idx, _strength in peak_rows:
+        peak_sample = int(np.argmax(sample_score[local_idx]))
+        start = max(0, peak_sample - int(peak_context_samples))
+        end = min(x.shape[-1], peak_sample + int(peak_context_samples) + 1)
+        epoch = x[local_idx, :, start:end]
+        peak_abs = np.abs(x[local_idx, :, peak_sample])
+        peak_to_peak = np.max(epoch, axis=-1) - np.min(epoch, axis=-1)
+        event_fields.append(0.60 * peak_abs + 0.40 * peak_to_peak)
+        peak_window_indices.append(window_idx)
+        peak_sample_indices.append(peak_sample)
+
+    field = np.median(np.stack(event_fields, axis=0), axis=0) if event_fields else np.zeros((len(channels),), dtype=float)
+    top_indices = np.argsort(field)[-5:][::-1].tolist() if field.size else []
+    top_channels = [channels[i] for i in top_indices if i < len(channels)]
+    max_field = float(np.max(field)) if field.size else 0.0
+    active_indices = np.where(field >= max_field * 0.45)[0].tolist() if max_field > 0 else []
+    active_channels = [channels[i] for i in active_indices if i < len(channels)]
+    return peak_window_indices, peak_sample_indices, top_channels, active_channels, field
+
+
+def _safe_spatial_descriptor(
+    signal_nct: np.ndarray,
+    channels: List[str],
+    suspicious_windows: List[int],
+) -> dict[str, object]:
+    peak_window_indices, peak_sample_indices, top_channels, active_channels, field = _peak_field_summary(
+        signal_nct,
+        channels,
+        suspicious_windows,
+    )
+    ch_to_idx = {c: i for i, c in enumerate(channels)}
+    left_idx = [ch_to_idx[c] for c in channels if c in LEFT_CHANNELS]
+    right_idx = [ch_to_idx[c] for c in channels if c in RIGHT_CHANNELS]
+    left_field = float(np.sum(field[left_idx])) if left_idx else 0.0
+    right_field = float(np.sum(field[right_idx])) if right_idx else 0.0
+    laterality_index = (left_field - right_field) / (left_field + right_field + 1e-6)
+    label = _topography_label_from_event_field(top_channels, active_channels, laterality_index)
+    laterality = _laterality_from_label(label)
+    region = _region_from_label(label)
+    electrode_maxima = top_channels[:3]
+    return {
+        "label": label,
+        "laterality": laterality,
+        "region": region,
+        "electrode_maxima": electrode_maxima,
+        "active_channels": active_channels[:10],
+        "peak_window_indices": peak_window_indices,
+        "peak_sample_indices": peak_sample_indices,
+        "spatial_pattern": _spatial_pattern_phrase(laterality, region, electrode_maxima),
+        "field": field,
+    }
+
+
+def _event_morphology_descriptor(
+    signal_nct: np.ndarray,
+    channels: List[str],
+    focused_idx: np.ndarray,
+    spatial: dict[str, object],
+    *,
+    window_seconds: int = 10,
+) -> dict[str, object]:
+    """Return clinical-shape descriptors without exposing numeric scores.
+
+    The goal is not to diagnose epileptiform activity directly. It separates
+    broad transients from spike-wave-like waveforms by requiring a sharp peak,
+    a following slow component, and rhythmic repetition support.
+    """
+    n_windows, _n_channels, n_samples = signal_nct.shape
+    if focused_idx.size == 0 or n_samples < 8:
+        return {
+            "descriptor": "insufficient_morphology",
+            "sharp_component": "unknown",
+            "slow_wave_follow": "unknown",
+            "rhythmicity": "unknown",
+        }
+    fs = float(n_samples) / float(window_seconds) if window_seconds > 0 else 0.0
+    if fs <= 0.0:
+        fs = 200.0
+    channel_index = {channel: idx for idx, channel in enumerate(channels)}
+    electrode_maxima = [str(ch) for ch in spatial.get("electrode_maxima", []) if str(ch) in channel_index]
+    selected_channels = electrode_maxima[:3] or [
+        str(ch) for ch in spatial.get("active_channels", []) if str(ch) in channel_index
+    ][:5]
+    if not selected_channels:
+        selected_channels = list(channels[: min(5, len(channels))])
+    selected_indices = [channel_index[ch] for ch in selected_channels if ch in channel_index]
+    if not selected_indices:
+        return {
+            "descriptor": "insufficient_morphology",
+            "sharp_component": "unknown",
+            "slow_wave_follow": "unknown",
+            "rhythmicity": "unknown",
+        }
+
+    focused = {int(window_idx): local_idx for local_idx, window_idx in enumerate(focused_idx.tolist())}
+    peak_windows = [int(x) for x in spatial.get("peak_window_indices", [])]
+    peak_samples = [int(x) for x in spatial.get("peak_sample_indices", [])]
+    x = signal_nct[focused_idx].astype(np.float32) * _infer_uv_scale(signal_nct)
+    x = x - np.median(x, axis=-1, keepdims=True)
+
+    sharp_votes = 0
+    slow_votes = 0
+    rhythmic_votes = 0
+    evaluated = 0
+    peak_to_peak_values: list[float] = []
+    for window_idx, peak_sample in zip(peak_windows, peak_samples):
+        if window_idx not in focused:
+            continue
+        local_idx = focused[window_idx]
+        peak_sample = int(np.clip(peak_sample, 1, n_samples - 2))
+        traces = x[local_idx, selected_indices, :]
+        if traces.size == 0:
+            continue
+        peak_channel = int(np.argmax(np.abs(traces[:, peak_sample])))
+        y = _linear_detrend_1d(traces[peak_channel].astype(np.float64))
+        baseline_start, baseline_end = _centered_slice(peak_sample, n_samples, int(round(0.30 * fs)))
+        baseline = float(np.median(y[baseline_start:baseline_end])) if baseline_end > baseline_start else float(np.median(y))
+        peak_amp = abs(float(y[peak_sample] - baseline))
+        local_start, local_end = _centered_slice(peak_sample, n_samples, int(round(0.12 * fs)))
+        local = y[local_start:local_end]
+        local_p2p = float(np.percentile(local, 95) - np.percentile(local, 5)) if local.size else 0.0
+        peak_to_peak_values.append(local_p2p)
+
+        curvature = abs(float(y[peak_sample + 1] - 2.0 * y[peak_sample] + y[peak_sample - 1]))
+        sharp = peak_amp >= 25.0 and curvature >= 8.0
+        if sharp:
+            sharp_votes += 1
+
+        post_start = min(n_samples, peak_sample + int(round(0.08 * fs)))
+        post_end = min(n_samples, peak_sample + int(round(0.60 * fs)))
+        post = y[post_start:post_end]
+        slow_follow = False
+        if post.size:
+            post_dev = float(np.max(np.abs(post - baseline)))
+            slow_follow = post_dev >= max(10.0, 0.25 * peak_amp)
+        if slow_follow:
+            slow_votes += 1
+
+        freq_start, freq_end = _centered_slice(peak_sample, n_samples, int(round(1.50 * fs)))
+        freq = _dominant_frequency_hz(y[freq_start:freq_end], fs)
+        if freq is not None and 2.0 <= float(freq) <= 7.0:
+            rhythmic_votes += 1
+        evaluated += 1
+
+    if evaluated == 0:
+        return {
+            "descriptor": "insufficient_morphology",
+            "sharp_component": "unknown",
+            "slow_wave_follow": "unknown",
+            "rhythmicity": "unknown",
+        }
+
+    sharp_component = sharp_votes >= max(1, int(np.ceil(0.30 * evaluated)))
+    slow_wave_follow = slow_votes >= max(1, int(np.ceil(0.30 * evaluated)))
+    rhythmicity = rhythmic_votes >= max(1, int(np.ceil(0.30 * evaluated)))
+    broad_field = (
+        str(spatial.get("laterality")) == "bilateral"
+        and len([str(ch) for ch in spatial.get("active_channels", [])]) >= 6
+    ) or str(spatial.get("label", "")).startswith("generalized")
+
+    descriptor = "insufficient_morphology"
+    if sharp_component and slow_wave_follow and rhythmicity and broad_field:
+        descriptor = "generalized_spike_wave_like"
+    elif sharp_component and slow_wave_follow and rhythmicity:
+        descriptor = "spike_wave_like"
+    elif sharp_component and slow_wave_follow:
+        descriptor = "sharp_wave_like"
+    elif sharp_component:
+        descriptor = "sharp_transient_like"
+    elif peak_to_peak_values and float(np.median(peak_to_peak_values)) >= 25.0:
+        descriptor = "nonspecific_transient_like"
+
+    return {
+        "descriptor": descriptor,
+        "sharp_component": "present" if sharp_component else "absent",
+        "slow_wave_follow": "present" if slow_wave_follow else "absent",
+        "rhythmicity": "present" if rhythmicity else "absent",
+        "field_extent": "broad_bilateral" if broad_field else "focal_or_regional",
+    }
+
+
+def _linear_detrend_1d(y: np.ndarray) -> np.ndarray:
+    if y.size < 3:
+        return y - np.mean(y) if y.size else y
+    x = np.linspace(-1.0, 1.0, y.size)
+    slope, intercept = np.polyfit(x, y.astype(np.float64), 1)
+    return y.astype(np.float64) - (slope * x + intercept)
+
+
+def _dominant_frequency_hz(epoch: np.ndarray, fs: float) -> float | None:
+    if epoch.size < 8 or fs <= 0:
+        return None
+    y = _linear_detrend_1d(epoch.astype(np.float64))
+    y = y - np.mean(y)
+    # Event frequency should reflect discharge repetition rate. Autocorrelation
+    # is a better first pass than a plain FFT here because sharp transients can
+    # otherwise make the spectral peak drift toward high-frequency sharpness.
+    denom = float(np.dot(y, y))
+    if denom > 1e-12:
+        corr = np.correlate(y, y, mode="full")[y.size - 1 :] / denom
+        min_lag = max(1, int(round(fs / min(15.0, fs / 2.0))))
+        max_lag = min(corr.size - 2, int(round(fs / 1.0)))
+        if max_lag > min_lag:
+            lag_slice = corr[min_lag : max_lag + 1]
+            peak_lags: list[int] = []
+            for offset in range(1, lag_slice.size - 1):
+                if lag_slice[offset] > lag_slice[offset - 1] and lag_slice[offset] >= lag_slice[offset + 1]:
+                    peak_lags.append(min_lag + offset)
+            if peak_lags:
+                peak_lags = sorted(peak_lags, key=lambda lag: float(corr[lag]), reverse=True)
+                best_lag = peak_lags[0]
+                best_freq = float(fs / best_lag)
+                if best_freq <= 1.25:
+                    for lag in peak_lags[1:]:
+                        freq = float(fs / lag)
+                        if freq >= 1.5 and float(corr[lag]) >= 0.60 * float(corr[best_lag]):
+                            return freq
+                return best_freq
+
+    window = np.hanning(y.size)
+    n_fft = max(y.size, int(round(fs * 4.0)))
+    spectrum = np.abs(np.fft.rfft(y * window, n=n_fft)) ** 2
+    freqs = np.fft.rfftfreq(n_fft, d=1.0 / fs)
+    mask = (freqs >= 1.0) & (freqs <= min(15.0, fs / 2.0))
+    if not np.any(mask):
+        return None
+    band_power = spectrum[mask]
+    if not np.any(np.isfinite(band_power)) or float(np.max(band_power)) <= 0.0:
+        return None
+    return float(freqs[mask][int(np.argmax(band_power))])
+
+
+def _centered_slice(sample_idx: int, n_samples: int, half_width: int) -> tuple[int, int]:
+    start = max(0, int(sample_idx) - int(half_width))
+    end = min(n_samples, int(sample_idx) + int(half_width) + 1)
+    return start, end
+
+
+def _peak_envelope_duration_sec(y: np.ndarray, peak_sample: int, fs: float) -> float | None:
+    if y.size < 8 or fs <= 0:
+        return None
+    detrended = _linear_detrend_1d(y.astype(np.float64))
+    envelope = np.abs(detrended)
+    smooth_len = max(3, int(round(fs * 0.50)))
+    if smooth_len % 2 == 0:
+        smooth_len += 1
+    kernel = np.ones(smooth_len, dtype=float) / float(smooth_len)
+    smooth = np.convolve(envelope, kernel, mode="same")
+    peak_sample = int(np.clip(peak_sample, 0, smooth.size - 1))
+    baseline = float(np.median(smooth))
+    mad = float(np.median(np.abs(smooth - baseline))) + 1e-6
+    peak_value = float(smooth[peak_sample])
+    if peak_value <= baseline:
+        return None
+    threshold = max(baseline + 3.0 * mad, baseline + 0.25 * (peak_value - baseline))
+    left = peak_sample
+    right = peak_sample
+    allowed_gap = max(1, int(round(fs * 0.25)))
+    gap = 0
+    while left > 0:
+        if smooth[left - 1] >= threshold:
+            gap = 0
+            left -= 1
+            continue
+        gap += 1
+        if gap > allowed_gap:
+            break
+        left -= 1
+    gap = 0
+    while right < smooth.size - 1:
+        if smooth[right + 1] >= threshold:
+            gap = 0
+            right += 1
+            continue
+        gap += 1
+        if gap > allowed_gap:
+            break
+        right += 1
+    return float(max(1, right - left + 1) / fs)
+
+
+def event_waveform_numeric_v2(
+    signal_nct: np.ndarray,
+    channels: List[str],
+    suspicious_windows: List[int],
+    window_seconds: int,
+    source_ref: str,
+    peak_context_samples: int = 50,
+    max_peaks: int = 12,
+) -> List[MeasurementValue]:
+    """Estimate traceable waveform numerics from focused event-candidate windows.
+
+    These measurements are not seizure evidence and do not make a definitive
+    epileptiform claim. They provide bounded amplitude/frequency/duration values
+    that later stages may use only with linked provenance and caveats.
+    """
+    n_windows, _n_channels, n_samples = signal_nct.shape
+    focused = [int(i) for i in sorted(set(suspicious_windows)) if 0 <= int(i) < n_windows]
+    if not focused:
+        return []
+
+    context = max(8, min(int(peak_context_samples), max(8, n_samples // 20)))
+    peak_window_indices, peak_sample_indices, top_channels, active_channels, _field = _peak_field_summary(
+        signal_nct,
+        channels,
+        focused,
+        peak_context_samples=context,
+        max_peaks=max_peaks,
+    )
+    if not peak_window_indices:
+        return []
+    peak_window_indices = [int(window_idx) for window_idx in peak_window_indices]
+    peak_sample_indices = [int(sample_idx) for sample_idx in peak_sample_indices]
+
+    channel_index = {channel: idx for idx, channel in enumerate(channels)}
+    selected_channels = [ch for ch in (top_channels or active_channels) if ch in channel_index][:5]
+    if not selected_channels:
+        selected_channels = list(channels[: min(5, len(channels))])
+    selected_indices = [channel_index[ch] for ch in selected_channels]
+
+    x = signal_nct[peak_window_indices].astype(np.float32) * _infer_uv_scale(signal_nct)
+    x = x - np.median(x, axis=-1, keepdims=True)
+    fs = float(n_samples) / float(window_seconds) if window_seconds > 0 else 0.0
+
+    amplitude_values: list[float] = []
+    frequency_values: list[float] = []
+    duration_values: list[float] = []
+    amp_half_width = max(context, int(round(fs * 0.25))) if fs > 0 else context
+    freq_half_width = max(context, int(round(fs * 1.50))) if fs > 0 else context
+    for local_idx, peak_sample in enumerate(peak_sample_indices):
+        amp_start, amp_end = _centered_slice(peak_sample, n_samples, amp_half_width)
+        epoch = x[local_idx, selected_indices, amp_start:amp_end]
+        if epoch.size:
+            per_channel_p2p = np.percentile(epoch, 95, axis=-1) - np.percentile(epoch, 5, axis=-1)
+            if per_channel_p2p.size:
+                top_p2p = np.sort(per_channel_p2p)[-min(2, per_channel_p2p.size) :]
+                amplitude_values.append(float(np.median(top_p2p)))
+
+        freq_start, freq_end = _centered_slice(peak_sample, n_samples, freq_half_width)
+        local_epoch = x[local_idx, selected_indices, freq_start:freq_end]
+        if local_epoch.size and fs > 0:
+            channel_p2p = np.percentile(local_epoch, 95, axis=-1) - np.percentile(local_epoch, 5, axis=-1)
+            best_channel = int(np.argmax(channel_p2p)) if channel_p2p.size else 0
+            freq = _dominant_frequency_hz(local_epoch[best_channel], fs)
+            if freq is not None:
+                frequency_values.append(freq)
+            dur = _peak_envelope_duration_sec(x[local_idx, selected_indices[best_channel], :], peak_sample, fs)
+            if dur is not None and np.isfinite(dur):
+                duration_values.append(dur)
+
+    # Focused event numerics should not turn large movement/electrode artifacts
+    # into reportable waveform values. Keep the measurement bounded to a broad
+    # physiologic EEG range; discarded values remain absent rather than surfaced.
+    amplitude_values = [
+        float(value)
+        for value in amplitude_values
+        if np.isfinite(value) and 2.0 <= float(value) <= 1000.0
+    ]
+    if not amplitude_values:
+        return []
+
+    provenance = make_provenance(
+        tool_name="event_waveform_numeric_v2",
+        function_name="event_waveform_numeric_v2",
+        source_ref=source_ref,
+        window_indices=peak_window_indices,
+        channels=selected_channels,
+        region=_region_label_from_channels(selected_channels),
+        laterality=_laterality_from_label(_region_label_from_channels(selected_channels)),
+        reason="focused_event_candidate_waveform_numeric_not_seizure_evidence",
+    )
+    if peak_sample_indices:
+        provenance.value_span = (float(min(peak_sample_indices)), float(max(peak_sample_indices)))
+
+    metadata = {
+        "event_waveform_numeric_v2": "true",
+        "candidate_context_only": "true",
+        "not_seizure_evidence": "true",
+        "top_channels": ",".join(selected_channels),
+        "peak_window_indices": ",".join(str(i) for i in peak_window_indices),
+        "peak_sample_indices": ",".join(str(i) for i in peak_sample_indices),
+        "duration_source": "peak_centered_envelope_duration",
+        "frequency_source": "peak_centered_local_segment_fft",
+        "amplitude_source": "peak_centered_local_segment_p95_minus_p5",
+    }
+
+    measurements: list[MeasurementValue] = []
+    if amplitude_values:
+        amp = np.asarray(amplitude_values, dtype=float)
+        typical = float(np.median(amp))
+        lo = float(np.percentile(amp, 25))
+        hi = float(np.percentile(amp, 75))
+        measurements.extend(
+            [
+                make_exact_measurement(
+                    measurement_id="m_event_waveform_amplitude_peak_to_peak_typical",
+                    measurement_name="event_waveform_amplitude_peak_to_peak_typical_uv",
+                    value=typical,
+                    unit="uV",
+                    provenance=provenance,
+                ),
+                make_range_measurement(
+                    measurement_id="m_event_waveform_amplitude_peak_to_peak_range",
+                    measurement_name="event_waveform_amplitude_peak_to_peak_range_uv",
+                    lower=lo,
+                    upper=hi,
+                    unit="uV",
+                    provenance=provenance,
+                ),
+            ]
+        )
+    if frequency_values:
+        measurements.append(
+            make_exact_measurement(
+                measurement_id="m_event_waveform_dominant_frequency",
+                measurement_name="event_waveform_dominant_frequency_hz",
+                value=float(np.median(np.asarray(frequency_values, dtype=float))),
+                unit="Hz",
+                provenance=provenance,
+            )
+        )
+    if duration_values:
+        duration_array = np.asarray(duration_values, dtype=float)
+        measurements.extend(
+            [
+                make_exact_measurement(
+                    measurement_id="m_event_waveform_duration_typical",
+                    measurement_name="event_waveform_duration_typical_sec",
+                    value=float(np.median(duration_array)),
+                    unit="sec",
+                    provenance=make_provenance(
+                        tool_name="event_waveform_numeric_v2",
+                        function_name="event_waveform_numeric_v2",
+                        source_ref=source_ref,
+                        window_indices=peak_window_indices,
+                        channels=selected_channels,
+                        reason="peak_centered_envelope_duration_not_seizure_duration",
+                    ),
+                ),
+                make_upper_bound_measurement(
+                    measurement_id="m_event_waveform_duration_upper",
+                    measurement_name="event_waveform_duration_upper_sec",
+                    upper=float(np.percentile(duration_array, 90)),
+                    unit="sec",
+                    provenance=make_provenance(
+                        tool_name="event_waveform_numeric_v2",
+                        function_name="event_waveform_numeric_v2",
+                        source_ref=source_ref,
+                        window_indices=peak_window_indices,
+                        channels=selected_channels,
+                        reason="peak_centered_envelope_duration_upper_bound_not_seizure_duration",
+                    ),
+                ),
+            ]
+        )
+
+    for measurement in measurements:
+        measurement.metadata.update(metadata)
+    return measurements
+
+
+def event_spatiomorphology_v2(
+    signal_nct: np.ndarray,
+    channels: List[str],
+    suspicious_windows: List[int],
+    source_ref: str,
+    window_seconds: int = 10,
+) -> List[MeasurementValue]:
+    """Build trace-safe spatial and morphology descriptors for event candidates.
+
+    This tool intentionally emits clinical descriptors, not internal ratios or
+    scores. Raw support values remain available only through the legacy proxy
+    measurements.
+    """
+    if not suspicious_windows:
+        suspicious_windows = list(range(signal_nct.shape[0]))
+    focused_idx = np.asarray(sorted(set(int(i) for i in suspicious_windows)), dtype=int)
+    focused_idx = focused_idx[(focused_idx >= 0) & (focused_idx < signal_nct.shape[0])]
+    if focused_idx.size == 0:
+        focused_idx = np.arange(signal_nct.shape[0], dtype=int)
+
+    spatial = _safe_spatial_descriptor(signal_nct, channels, [int(x) for x in focused_idx.tolist()])
+    electrode_maxima = [str(ch) for ch in spatial["electrode_maxima"]]
+    region = str(spatial["region"])
+    laterality = str(spatial["laterality"])
+    spatial_pattern = str(spatial["spatial_pattern"])
+    morphology = _event_morphology_descriptor(
+        signal_nct,
+        channels,
+        focused_idx,
+        spatial,
+        window_seconds=window_seconds,
+    )
+    morphology_descriptor = str(morphology["descriptor"])
+    field_descriptor = (
+        f"event field shows {spatial_pattern}"
+        if spatial_pattern != "spatial field not localizable"
+        else "event field not localizable"
+    )
+
+    provenance = make_provenance(
+        tool_name="event_spatiomorphology_v2",
+        function_name="event_spatiomorphology_v2",
+        source_ref=source_ref,
+        window_indices=[int(x) for x in focused_idx.tolist()],
+        channels=electrode_maxima or channels,
+        region=region,
+        laterality=laterality,
+        reason="safe_event_spatial_morphology_descriptor_no_scores_or_ratios",
+    )
+    metadata = {
+        "active_channels": ",".join(str(ch) for ch in spatial["active_channels"]),
+        "peak_window_indices": ",".join(str(i) for i in spatial["peak_window_indices"]),
+        "peak_sample_indices": ",".join(str(i) for i in spatial["peak_sample_indices"]),
+        "sharp_component": str(morphology["sharp_component"]),
+        "slow_wave_follow": str(morphology["slow_wave_follow"]),
+        "rhythmicity": str(morphology["rhythmicity"]),
+        "field_extent": str(morphology["field_extent"]),
+        "safe_spatiomorphology_v2": "true",
+        "internal_scores_suppressed": "true",
+    }
+
+    measurements = [
+        make_categorical_measurement(
+            measurement_id="m_event_electrode_maxima_v2",
+            measurement_name="event_electrode_maxima_v2",
+            value=",".join(electrode_maxima) if electrode_maxima else "unknown",
+            provenance=provenance,
+        ),
+        make_categorical_measurement(
+            measurement_id="m_event_region_v2",
+            measurement_name="event_region_v2",
+            value=region,
+            provenance=provenance,
+        ),
+        make_categorical_measurement(
+            measurement_id="m_event_laterality_v2",
+            measurement_name="event_laterality_v2",
+            value=laterality,
+            provenance=provenance,
+        ),
+        make_categorical_measurement(
+            measurement_id="m_event_spatial_pattern_v2",
+            measurement_name="event_spatial_pattern_v2",
+            value=spatial_pattern,
+            provenance=provenance,
+        ),
+        make_categorical_measurement(
+            measurement_id="m_event_field_descriptor_v2",
+            measurement_name="event_field_descriptor_v2",
+            value=field_descriptor,
+            provenance=provenance,
+        ),
+        make_categorical_measurement(
+            measurement_id="m_event_morphology_descriptor_v2",
+            measurement_name="event_morphology_descriptor_v2",
+            value=morphology_descriptor,
+            provenance=provenance,
+        ),
+    ]
+    for measurement in measurements:
+        measurement.metadata.update(metadata)
+    return measurements
+
+
 def event_localization_normalizer(
     signal_nct: np.ndarray,
     channels: List[str],
@@ -355,10 +1059,14 @@ def event_peak_topography_localizer(
     field at those peaks. It still produces proxy evidence, not a definitive
     clinical localization claim.
     """
-    focused_windows = _sanitize_windows(suspicious_windows, signal_nct.shape[0])
-    x = signal_nct[focused_windows].astype(np.float32) * _infer_uv_scale(signal_nct)
-    x = x - np.median(x, axis=-1, keepdims=True)
-    if x.size == 0:
+    peak_window_indices, peak_sample_indices, top_channels, active_channels, field = _peak_field_summary(
+        signal_nct,
+        channels,
+        suspicious_windows,
+        peak_context_samples=peak_context_samples,
+        max_peaks=max_peaks,
+    )
+    if not peak_window_indices:
         provenance = make_provenance(
             tool_name="event_peak_topography_localizer",
             function_name="event_peak_topography_localizer",
@@ -374,39 +1082,7 @@ def event_peak_topography_localizer(
                 provenance=provenance,
             )
         ]
-
-    dx = np.diff(x, axis=-1, prepend=x[:, :, :1])
-    amplitude_score = np.max(np.abs(x), axis=1)
-    sharpness_score = np.max(np.abs(dx), axis=1)
-    sample_score = amplitude_score + 0.50 * sharpness_score
-
-    peak_rows: List[Tuple[int, int, float]] = []
-    for local_idx, window_idx in enumerate(focused_windows):
-        peak_sample = int(np.argmax(sample_score[local_idx]))
-        peak_strength = float(sample_score[local_idx, peak_sample])
-        peak_rows.append((local_idx, int(window_idx), peak_strength))
-    peak_rows = sorted(peak_rows, key=lambda item: item[2], reverse=True)[: max(1, int(max_peaks))]
-
-    event_fields = []
-    peak_window_indices: List[int] = []
-    peak_sample_indices: List[int] = []
-    for local_idx, window_idx, _strength in peak_rows:
-        peak_sample = int(np.argmax(sample_score[local_idx]))
-        start = max(0, peak_sample - int(peak_context_samples))
-        end = min(x.shape[-1], peak_sample + int(peak_context_samples) + 1)
-        epoch = x[local_idx, :, start:end]
-        peak_abs = np.abs(x[local_idx, :, peak_sample])
-        peak_to_peak = np.max(epoch, axis=-1) - np.min(epoch, axis=-1)
-        event_fields.append(0.60 * peak_abs + 0.40 * peak_to_peak)
-        peak_window_indices.append(window_idx)
-        peak_sample_indices.append(peak_sample)
-
-    field = np.median(np.stack(event_fields, axis=0), axis=0) if event_fields else np.zeros((len(channels),), dtype=float)
-    top_indices = np.argsort(field)[-5:][::-1].tolist() if field.size else []
-    top_channels = [channels[i] for i in top_indices if i < len(channels)]
     max_field = float(np.max(field)) if field.size else 0.0
-    active_indices = np.where(field >= max_field * 0.45)[0].tolist() if max_field > 0 else []
-    active_channels = [channels[i] for i in active_indices if i < len(channels)]
 
     ch_to_idx = {c: i for i, c in enumerate(channels)}
     left_idx = [ch_to_idx[c] for c in channels if c in LEFT_CHANNELS]
@@ -643,6 +1319,13 @@ def event_type_separation_classifier(
     # Candidate runs alone should not trigger seizure language. Keep the score
     # low unless multiple seizure-oriented conditions are jointly present.
     seizure_likelihood = float(min(1.0, seizure_gate))
+    seizure_pattern_status = (
+        StatusSemantic.PRESENT
+        if seizure_likelihood >= 0.65 and max_run_sec >= 120.0 and burden >= 0.30
+        else StatusSemantic.NOT_OBSERVED
+        if seizure_likelihood <= 0.05 and max_run_sec < 30.0 and burden <= 0.10
+        else StatusSemantic.UNKNOWN
+    )
 
     provenance = make_provenance(
         tool_name="event_type_separation_classifier",
@@ -666,5 +1349,18 @@ def event_type_separation_classifier(
             value=seizure_likelihood,
             unit="score",
             provenance=provenance,
+        ),
+        make_status_measurement(
+            measurement_id="m_electrographic_seizure_pattern_status",
+            measurement_name="electrographic_seizure_pattern_status",
+            status=seizure_pattern_status,
+            provenance=provenance,
+            reason=(
+                "sustained_rhythmic_candidate_run_gate"
+                if seizure_pattern_status == StatusSemantic.PRESENT
+                else "sustained_rhythmic_evolving_pattern_not_observed"
+                if seizure_pattern_status == StatusSemantic.NOT_OBSERVED
+                else "seizure_pattern_gate_indeterminate"
+            ),
         ),
     ]

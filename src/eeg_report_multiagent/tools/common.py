@@ -35,19 +35,26 @@ def infer_measurement_tags(
     if is_status:
         return MeasurementContextDependency.CONTEXT_STATUS, MeasurementRole.STATUS_OBSERVATION
 
-    if any(term in name for term in ("candidate_burden", "duration_distribution", "score_distribution", "train_duration")):
+    if name in {
+        "event_waveform_amplitude_peak_to_peak_typical_uv",
+        "event_waveform_amplitude_peak_to_peak_range_uv",
+        "event_waveform_dominant_frequency_hz",
+        "event_waveform_duration_typical_sec",
+        "event_waveform_duration_upper_sec",
+        "pdr_candidate_frequency_hz",
+        "pdr_v2_frequency_hz",
+        "background_amplitude_range_uv",
+        "background_amplitude_typical_uv",
+        "background_amplitude_peak_to_peak_typical_uv",
+        "background_amplitude_best_supported_uv",
+    }:
+        role = MeasurementRole.CLINICAL_MEASUREMENT
+    elif any(term in name for term in ("candidate_burden", "duration_distribution", "score_distribution", "train_duration")):
         role = MeasurementRole.DEBUG_DIAGNOSTIC
     elif any(term in name for term in ("likelihood", "score", "ratio", "bandpower", "morphology_proxy", "laterality_index")):
         role = MeasurementRole.PROXY_SCORE
     elif any(term in name for term in ("localization", "laterality", "field_concentration", "bifrontal")):
         role = MeasurementRole.SUPPORT_FEATURE
-    elif name in {
-        "pdr_candidate_frequency_hz",
-        "pdr_v2_frequency_hz",
-        "background_amplitude_range_uv",
-        "background_amplitude_typical_uv",
-    }:
-        role = MeasurementRole.CLINICAL_MEASUREMENT
     elif is_categorical:
         role = MeasurementRole.SUPPORT_FEATURE
     else:

@@ -8,6 +8,7 @@ from eeg_report_multiagent.schemas.measurement import MeasurementValue
 from eeg_report_multiagent.schemas.measurement import StatusSemantic
 from eeg_report_multiagent.tools.common import (
     make_exact_measurement,
+    make_categorical_measurement,
     make_provenance,
     make_range_measurement,
     make_status_measurement,
@@ -23,6 +24,7 @@ BANDS = {
 PHYSIOLOGIC_BAND = (0.5, 30.0)
 POSTERIOR_CHANNELS = {"O1", "O2", "P3", "P4", "Pz"}
 ANTERIOR_CHANNELS = {"Fp1", "Fp2", "Fpz", "F3", "F4", "F7", "F8", "Fz"}
+CENTRAL_CHANNELS = {"C3", "C4", "Cz"}
 
 
 def _detrend(signal_nct: np.ndarray) -> np.ndarray:
@@ -246,6 +248,8 @@ def posterior_dominant_rhythm_spectral_v2(
     peak_prominence_ratio = 0.0
     posterior_alpha_ratio = 0.0
     ap_ratio = 0.0
+    symmetry_score = 0.0
+    symmetry_label = "unknown"
     support_score = 0.0
     method_notes = ["welch_psd"]
 
@@ -278,6 +282,7 @@ def posterior_dominant_rhythm_spectral_v2(
         else:
             ap_ratio = 1.0
 
+        symmetry_score, symmetry_label = _posterior_alpha_symmetry(signal_nct, fs=fs, channels=channels)
         ap_ratio = float(min(ap_ratio, 10.0))
         support_score = float(
             min(
@@ -305,6 +310,7 @@ def posterior_dominant_rhythm_spectral_v2(
         "posterior_channels": ",".join(posterior_channels),
         "posterior_alpha_ratio": f"{posterior_alpha_ratio:.6f}",
         "posterior_anterior_alpha_ratio": f"{ap_ratio:.6f}",
+        "posterior_alpha_symmetry_score": f"{symmetry_score:.6f}",
         "peak_prominence_ratio": f"{peak_prominence_ratio:.6f}",
         "specparam_peak_hz": f"{specparam_peak_hz:.6f}",
         "specparam_peak_power": f"{specparam_peak_power:.6f}",
@@ -343,9 +349,34 @@ def posterior_dominant_rhythm_spectral_v2(
         unit="ratio",
         provenance=provenance,
     )
-    for measurement in (freq, support, posterior_ratio, ap):
+    symmetry = make_categorical_measurement(
+        measurement_id="m_pdr_symmetry_status",
+        measurement_name="pdr_symmetry_status",
+        value=symmetry_label,
+        provenance=provenance,
+    )
+    for measurement in (freq, support, posterior_ratio, ap, symmetry):
         measurement.metadata.update(base_metadata)
-    return [freq, support, posterior_ratio, ap]
+    return [freq, support, posterior_ratio, ap, symmetry]
+
+
+def _posterior_alpha_symmetry(signal_nct: np.ndarray, fs: int, channels: List[str]) -> tuple[float, str]:
+    ch_to_idx = {channel: i for i, channel in enumerate(channels)}
+    left_idx = [ch_to_idx[channel] for channel in ("O1", "P3") if channel in ch_to_idx]
+    right_idx = [ch_to_idx[channel] for channel in ("O2", "P4") if channel in ch_to_idx]
+    if not left_idx or not right_idx:
+        return 0.0, "unknown"
+    freqs, left_psd = _welch_psd_by_window_channel(signal_nct[:, left_idx, :], fs=fs)
+    _, right_psd = _welch_psd_by_window_channel(signal_nct[:, right_idx, :], fs=fs)
+    left_alpha = float(_bandpower(freqs, left_psd, (8.0, 13.0)).mean())
+    right_alpha = float(_bandpower(freqs, right_psd, (8.0, 13.0)).mean())
+    score = float(1.0 - abs(left_alpha - right_alpha) / (left_alpha + right_alpha + 1e-12))
+    score = max(0.0, min(1.0, score))
+    if score >= 0.55:
+        return score, "symmetric"
+    if score <= 0.35:
+        return score, "asymmetric"
+    return score, "uncertain"
 
 
 def _stable_posterior_alpha_peak(signal_nct: np.ndarray, fs: int) -> tuple[float, int, float] | None:
@@ -383,7 +414,11 @@ def _stable_posterior_alpha_peak(signal_nct: np.ndarray, fs: int) -> tuple[float
         return None
 
     weights = np.maximum(alpha_ratio[selected] * prominence[selected], 1e-12)
-    candidate = _weighted_median(peak_hz[selected], weights)
+    # Clinical PDR is commonly reported as a rounded dominant rhythm over the
+    # usable posterior background, not the single most common bin. A weighted
+    # mean keeps the estimate bounded to stable posterior alpha candidates while
+    # avoiding the low-bin bias we saw from weighted median on selected50.
+    candidate = np.average(peak_hz[selected], weights=weights)
     return float(candidate), int(np.sum(selected)), float(np.mean(selected))
 
 
@@ -494,6 +529,12 @@ def background_organization_proxy(
         score = float(min(1.0, ratio / 2.0))
         region_channels = [channels[i] for i in posterior_idx + anterior_idx if i < len(channels)]
         reason = "welch_posterior_over_anterior_alpha_ratio_proxy"
+    if score >= 0.45:
+        organization_label = "organized"
+    elif score <= 0.20:
+        organization_label = "poorly_organized"
+    else:
+        organization_label = "uncertain"
 
     return [
         make_exact_measurement(
@@ -510,7 +551,21 @@ def background_organization_proxy(
                 region="anterior-posterior",
                 reason=reason,
             ),
-        )
+        ),
+        make_categorical_measurement(
+            measurement_id="m_background_organization_status",
+            measurement_name="background_organization_status",
+            value=organization_label,
+            provenance=make_provenance(
+                tool_name="background_organization_proxy",
+                function_name="background_organization_proxy",
+                source_ref=source_ref,
+                window_indices=range(signal_nct.shape[0]),
+                channels=region_channels,
+                region="anterior-posterior",
+                reason=f"{reason};score_thresholded_to_categorical_background_organization",
+            ),
+        ),
     ]
 
 
@@ -538,6 +593,116 @@ def background_unavailable_slot_status(source_ref: str) -> List[MeasurementValue
             reason="sleep architecture requires a validated sleep/state detector not available in v1",
         ),
     ]
+
+
+def state_signal_summary(
+    signal_nct: np.ndarray,
+    fs: int,
+    source_ref: str,
+    channels: List[str] | None = None,
+) -> List[MeasurementValue]:
+    """Conservative signal-derived state candidates.
+
+    This tool does not replace clinical state annotation. It only emits
+    positive status candidates when bounded spectral evidence is strong enough;
+    otherwise it leaves the state unknown so downstream stages cannot invent
+    absent/present state claims.
+    """
+
+    if channels is None:
+        channels = [str(i) for i in range(signal_nct.shape[1])]
+    ch_to_idx = {channel: idx for idx, channel in enumerate(channels)}
+    posterior_idx = [ch_to_idx[channel] for channel in channels if channel in POSTERIOR_CHANNELS]
+    central_idx = [ch_to_idx[channel] for channel in channels if channel in CENTRAL_CHANNELS]
+    if not posterior_idx:
+        posterior_idx = list(range(signal_nct.shape[1]))
+    if not central_idx:
+        central_idx = list(range(signal_nct.shape[1]))
+
+    freqs, posterior_psd = _welch_psd_by_window_channel(signal_nct[:, posterior_idx, :], fs=fs)
+    total = _bandpower(freqs, posterior_psd, PHYSIOLOGIC_BAND).mean() + 1e-12
+    posterior_alpha = float(_bandpower(freqs, posterior_psd, (8.0, 13.0)).mean())
+    posterior_theta = float(_bandpower(freqs, posterior_psd, (4.0, 8.0)).mean())
+    posterior_alpha_ratio = posterior_alpha / total
+    posterior_theta_ratio = posterior_theta / total
+
+    alpha_mask = (freqs >= 8.0) & (freqs <= 13.0)
+    alpha_peak_hz = 0.0
+    alpha_prominence = 0.0
+    if np.any(alpha_mask):
+        alpha_freqs = freqs[alpha_mask]
+        alpha_psd = posterior_psd.mean(axis=(0, 1))[alpha_mask]
+        alpha_peak_hz, _alpha_power, alpha_prominence = _alpha_peak_from_psd(alpha_freqs, alpha_psd)
+
+    central_freqs, central_psd = _welch_psd_by_window_channel(signal_nct[:, central_idx, :], fs=fs)
+    central_total = _bandpower(central_freqs, central_psd, PHYSIOLOGIC_BAND).mean() + 1e-12
+    central_sigma_ratio = float(_bandpower(central_freqs, central_psd, (11.0, 16.0)).mean() / central_total)
+
+    awake_status = (
+        StatusSemantic.PRESENT
+        if 8.0 <= alpha_peak_hz <= 13.0 and posterior_alpha_ratio >= 0.08 and alpha_prominence >= 1.5
+        else StatusSemantic.UNKNOWN
+    )
+    drowsy_status = (
+        StatusSemantic.PRESENT
+        if posterior_theta_ratio >= 0.30 and posterior_alpha_ratio < 0.12
+        else StatusSemantic.UNKNOWN
+    )
+    sleep_architecture_status = (
+        StatusSemantic.PRESENT
+        if central_sigma_ratio >= 0.22
+        else StatusSemantic.UNKNOWN
+    )
+
+    state_channels = sorted(
+        {
+            channels[idx]
+            for idx in posterior_idx + central_idx
+            if 0 <= idx < len(channels)
+        }
+    )
+    provenance = make_provenance(
+        tool_name="state_signal_summary",
+        function_name="state_signal_summary",
+        source_ref=source_ref,
+        window_indices=range(signal_nct.shape[0]),
+        channels=state_channels,
+        reason="bounded_spectral_state_candidates_alpha_theta_sigma_unknown_when_unsupported",
+    )
+    metadata = {
+        "posterior_alpha_ratio": f"{posterior_alpha_ratio:.6f}",
+        "posterior_theta_ratio": f"{posterior_theta_ratio:.6f}",
+        "posterior_alpha_peak_hz": f"{alpha_peak_hz:.6f}",
+        "posterior_alpha_prominence": f"{alpha_prominence:.6f}",
+        "central_sigma_ratio": f"{central_sigma_ratio:.6f}",
+        "state_candidate_policy": "emit_present_only_when_supported_else_unknown",
+    }
+    measurements = [
+        make_status_measurement(
+            measurement_id="m_state_awake_signal",
+            measurement_name="state_awake_signal",
+            status=awake_status,
+            provenance=provenance,
+            reason="posterior_alpha_candidate_support" if awake_status == StatusSemantic.PRESENT else "posterior_alpha_candidate_not_sufficient",
+        ),
+        make_status_measurement(
+            measurement_id="m_state_drowsy_signal",
+            measurement_name="state_drowsy_signal",
+            status=drowsy_status,
+            provenance=provenance,
+            reason="posterior_theta_alpha_pattern_support" if drowsy_status == StatusSemantic.PRESENT else "posterior_theta_alpha_pattern_not_sufficient",
+        ),
+        make_status_measurement(
+            measurement_id="m_sleep_architecture_signal",
+            measurement_name="sleep_architecture_signal",
+            status=sleep_architecture_status,
+            provenance=provenance,
+            reason="central_sigma_support" if sleep_architecture_status == StatusSemantic.PRESENT else "central_sigma_support_not_sufficient",
+        ),
+    ]
+    for measurement in measurements:
+        measurement.metadata.update(metadata)
+    return measurements
 
 
 def bandpower_summary(
@@ -588,6 +753,7 @@ def amplitude_summary(
     signal_uv = signal_nct[:, selected_idx, :] * scale
     robust_low = np.percentile(signal_uv, 5.0, axis=-1)
     robust_high = np.percentile(signal_uv, 95.0, axis=-1)
+    robust_ptp = np.maximum(robust_high - robust_low, 0.0)
     robust_half_ptp = np.maximum((robust_high - robust_low) / 2.0, 0.0)
     valid = robust_half_ptp[np.isfinite(robust_half_ptp) & (robust_half_ptp >= 1.0)]
     if valid.size == 0:
@@ -595,6 +761,9 @@ def amplitude_summary(
     if valid.size:
         artifact_cap = float(np.percentile(valid, 90.0))
         valid = valid[valid <= artifact_cap]
+    full_valid = robust_ptp[np.isfinite(robust_ptp) & (robust_ptp >= 1.0)]
+    if full_valid.size:
+        full_valid = full_valid[full_valid <= np.percentile(full_valid, 90.0)]
     if valid.size == 0:
         lo = 0.0
         hi = 0.0
@@ -603,6 +772,19 @@ def amplitude_summary(
         lo = float(np.percentile(valid, 25.0))
         hi = float(np.percentile(valid, 75.0))
         typical = float(np.median(valid))
+    typical_peak_to_peak = float(np.median(full_valid)) if full_valid.size else 0.0
+    centered = signal_uv - np.mean(signal_uv, axis=-1, keepdims=True)
+    rms_candidates = np.sqrt(np.mean(centered**2, axis=-1)) * np.sqrt(2.0)
+    rms_valid = rms_candidates[np.isfinite(rms_candidates)]
+    rms_typical = float(np.median(rms_valid)) if rms_valid.size else 0.0
+    best_supported = typical
+    best_supported_rule = "half_p95_minus_p5_median"
+    if 0.0 < typical < 25.0 and typical_peak_to_peak > 0.0 and rms_typical >= 0.70 * typical:
+        best_supported = typical_peak_to_peak
+        best_supported_rule = "low_half_envelope_with_supporting_rms_use_full_p95_minus_p5_median"
+    elif typical > 80.0 and rms_typical > 0.0:
+        best_supported = rms_typical
+        best_supported_rule = "high_half_envelope_possible_artifact_use_rms_sqrt2_median"
     range_measurement = make_range_measurement(
         measurement_id="m_background_amplitude_range",
         measurement_name="background_amplitude_range_uv",
@@ -655,7 +837,64 @@ def amplitude_summary(
             "paired_range_measurement_id": range_measurement.measurement_id,
         }
     )
-    return [range_measurement, typical_measurement]
+    peak_to_peak_measurement = make_exact_measurement(
+        measurement_id="m_background_amplitude_peak_to_peak_typical",
+        measurement_name="background_amplitude_peak_to_peak_typical_uv",
+        value=typical_peak_to_peak,
+        unit=unit,
+        provenance=make_provenance(
+            tool_name="amplitude_summary",
+            function_name="amplitude_summary",
+            source_ref=source_ref,
+            window_indices=range(signal_nct.shape[0]),
+            channels=selected_channels,
+            region=region,
+            reason=f"{scale_assumption};posterior_preferred_peak_to_peak_p95_minus_p5_median_artifact_trimmed",
+        ),
+    )
+    peak_to_peak_measurement.metadata.update(
+        {
+            "scale_assumption": scale_assumption,
+            "amplitude_estimator": "per_window_channel_p95_minus_p5",
+            "reported_value": "median_across_selected_window_channel_peak_to_peak_amplitudes",
+            "near_zero_amplitude_rejection_uv": "1.0",
+            "artifact_cap_percentile": "90",
+            "selected_region": region or "all",
+            "paired_half_peak_to_peak_measurement_id": typical_measurement.measurement_id,
+            "surface_note": "alternate_clinical_amplitude_convention_do_not_surface_without_claim_context",
+        }
+    )
+    best_supported_measurement = make_exact_measurement(
+        measurement_id="m_background_amplitude_best_supported",
+        measurement_name="background_amplitude_best_supported_uv",
+        value=best_supported,
+        unit=unit,
+        provenance=make_provenance(
+            tool_name="amplitude_summary",
+            function_name="amplitude_summary",
+            source_ref=source_ref,
+            window_indices=range(signal_nct.shape[0]),
+            channels=selected_channels,
+            region=region,
+            reason=f"{scale_assumption};posterior_preferred_best_supported_amplitude_candidate",
+        ),
+    )
+    best_supported_measurement.metadata.update(
+        {
+            "scale_assumption": scale_assumption,
+            "amplitude_estimator": "best_supported_candidate_from_half_envelope_full_envelope_and_rms",
+            "selection_rule": best_supported_rule,
+            "half_p95_minus_p5_median_uv": f"{typical:.6g}",
+            "full_p95_minus_p5_median_uv": f"{typical_peak_to_peak:.6g}",
+            "rms_sqrt2_median_uv": f"{rms_typical:.6g}",
+            "low_half_envelope_threshold_uv": "25.0",
+            "high_half_envelope_threshold_uv": "80.0",
+            "rms_support_fraction_threshold": "0.70",
+            "selected_region": region or "all",
+            "surface_note": "candidate amplitude estimator; surface only through linked evidence and claim context",
+        }
+    )
+    return [range_measurement, typical_measurement, peak_to_peak_measurement, best_supported_measurement]
 
 
 def slowing_score(
@@ -692,7 +931,39 @@ def slowing_score(
             "delta_theta_over_alpha_beta": f"{(delta + theta) / (alpha + beta + 1e-12):.6f}",
         }
     )
-    return [m]
+    stable_alpha_fraction = _stable_alpha_fraction_for_channels(signal_nct, fs=fs, channels=channels)
+    if score >= 0.65 and stable_alpha_fraction < 0.15:
+        slowing_label = "present"
+    elif score <= 0.45:
+        slowing_label = "absent"
+    else:
+        slowing_label = "uncertain"
+    status = make_categorical_measurement(
+        measurement_id="m_background_slowing_status",
+        measurement_name="background_slowing_status",
+        value=slowing_label,
+        provenance=make_provenance(
+            tool_name="slowing_score",
+            function_name="slowing_score",
+            source_ref=source_ref,
+            window_indices=range(signal_nct.shape[0]),
+            channels=channels or [str(i) for i in range(signal_nct.shape[1])],
+            reason="welch_delta_theta_fraction_thresholded_to_categorical_background_slowing",
+        ),
+    )
+    status.metadata.update(m.metadata)
+    status.metadata.update({"stable_posterior_alpha_candidate_fraction": f"{stable_alpha_fraction:.6f}"})
+    return [m, status]
+
+
+def _stable_alpha_fraction_for_channels(signal_nct: np.ndarray, fs: int, channels: List[str] | None) -> float:
+    channel_list = channels or [str(i) for i in range(signal_nct.shape[1])]
+    ch_to_idx = {channel: i for i, channel in enumerate(channel_list)}
+    posterior_idx = [ch_to_idx[channel] for channel in channel_list if channel in POSTERIOR_CHANNELS]
+    if not posterior_idx:
+        posterior_idx = list(range(signal_nct.shape[1]))
+    stable = _stable_posterior_alpha_peak(_detrend(signal_nct[:, posterior_idx, :]), fs=fs)
+    return float(stable[2]) if stable is not None else 0.0
 
 
 def beta_excess_score(
@@ -730,7 +1001,27 @@ def beta_excess_score(
             "beta_over_non_beta": f"{beta / (others + 1e-12):.6f}",
         }
     )
-    return [m]
+    if score >= 0.25:
+        beta_label = "present"
+    elif score <= 0.12:
+        beta_label = "absent"
+    else:
+        beta_label = "uncertain"
+    status = make_categorical_measurement(
+        measurement_id="m_excess_beta_status",
+        measurement_name="excess_beta_status",
+        value=beta_label,
+        provenance=make_provenance(
+            tool_name="beta_excess_score",
+            function_name="beta_excess_score",
+            source_ref=source_ref,
+            window_indices=range(signal_nct.shape[0]),
+            channels=channels or [str(i) for i in range(signal_nct.shape[1])],
+            reason="welch_beta_fraction_thresholded_to_categorical_excess_beta",
+        ),
+    )
+    status.metadata.update(m.metadata)
+    return [m, status]
 
 
 def _welch_psd_by_window_channel(signal_nct: np.ndarray, fs: int) -> tuple[np.ndarray, np.ndarray]:

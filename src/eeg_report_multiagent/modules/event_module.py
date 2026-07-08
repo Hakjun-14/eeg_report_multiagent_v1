@@ -45,8 +45,20 @@ class EventModule:
         if isinstance(output, list):
             measurements.extend([m for m in output if isinstance(m, MeasurementValue)])
 
+        spike_output, spike_rec = self.registry.dispatch(
+            "spike_wave_candidate_score",
+            signal_nct=signal_nct,
+            window_seconds=window_seconds,
+            source_ref=source_ref,
+        )
+        invocations.append(spike_rec)
+        if isinstance(spike_output, list):
+            measurements.extend([m for m in spike_output if isinstance(m, MeasurementValue)])
+
         score_dist = _extract_distribution_values(measurements, "event_candidate_score_distribution")
-        suspicious = np.where(score_dist > np.percentile(score_dist, 90))[0].tolist() if score_dist.size else []
+        spike_score_dist = _extract_distribution_values(measurements, "spike_wave_candidate_score_distribution")
+        focus_score_dist = spike_score_dist if spike_score_dist.size and float(np.max(spike_score_dist)) > 0.0 else score_dist
+        suspicious = np.where(focus_score_dist > np.percentile(focus_score_dist, 90))[0].tolist() if focus_score_dist.size else []
 
         for tool_name in tools:
             if tool_name == "transient_candidate_score":
@@ -54,7 +66,7 @@ class EventModule:
             if tool_name == "burst_train_duration_estimate":
                 output, rec = self.registry.dispatch(
                     tool_name,
-                    score_distribution=score_dist,
+                    score_distribution=focus_score_dist,
                     window_seconds=window_seconds,
                     source_ref=source_ref,
                 )
@@ -62,6 +74,7 @@ class EventModule:
                 "channel_spread_laterality_summary",
                 "event_localization_normalizer",
                 "event_peak_topography_localizer",
+                "event_spatiomorphology_v2",
                 "focality_bifrontal_summary",
             }:
                 output, rec = self.registry.dispatch(
@@ -69,6 +82,15 @@ class EventModule:
                     signal_nct=signal_nct,
                     channels=channels,
                     suspicious_windows=suspicious,
+                    source_ref=source_ref,
+                )
+            elif tool_name == "event_waveform_numeric_v2":
+                output, rec = self.registry.dispatch(
+                    tool_name,
+                    signal_nct=signal_nct,
+                    channels=channels,
+                    suspicious_windows=suspicious,
+                    window_seconds=window_seconds,
                     source_ref=source_ref,
                 )
             elif tool_name == "morphology_feature_encoder":
@@ -85,7 +107,7 @@ class EventModule:
                     signal_nct=signal_nct,
                     channels=channels,
                     suspicious_windows=suspicious,
-                    score_distribution=score_dist,
+                    score_distribution=focus_score_dist,
                     window_seconds=window_seconds,
                     source_ref=source_ref,
                 )

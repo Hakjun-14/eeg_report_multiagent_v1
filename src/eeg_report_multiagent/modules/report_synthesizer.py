@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import List, Mapping
+from typing import Any, List, Mapping
 
 from eeg_report_multiagent.schemas.evidence import EvidenceBoard
 from eeg_report_multiagent.schemas.measurement import MeasurementValue
@@ -15,6 +15,7 @@ from eeg_report_multiagent.schemas.report import (
 )
 from eeg_report_multiagent.schemas.section_contract import SectionRole
 from eeg_report_multiagent.schemas.shared_evidence import ClinicalTarget, EvidenceItem, EvidenceType, SharedEvidenceBoard
+from eeg_report_multiagent.modules.clinical_reference_registry import clinical_reference_ids_for_claim
 from eeg_report_multiagent.modules.section_router import SectionRouter
 from eeg_report_multiagent.modules.surface_policy import SurfacePolicy
 
@@ -95,8 +96,28 @@ class ReportSynthesizer:
         for plan in claim_plan:
             base = self.surface_policy.decide(plan)
             hard_deny = self._hard_deny_reasons(plan, base, shared_board)
+            clinical_reference_ids = clinical_reference_ids_for_claim(
+                plan.claim_type,
+                self._claim_targets(plan, shared_board),
+            )
             action = base.surface_action
             decided_by = "surface_policy"
+            rationale = base.rationale
+            caveat = base.caveat
+            debug_payload = dict(base.debug_payload)
+            if not hard_deny:
+                calibrated = self._calibrated_surface_update(plan, base, shared_board)
+                if calibrated is not None:
+                    action, rationale, caveat = calibrated
+                    decided_by = "surface_policy_calibrated"
+                    debug_payload = {
+                        **debug_payload,
+                        "surface_calibration": {
+                            "from_surface_action": base.surface_action.value,
+                            "to_surface_action": action.value,
+                            "reason": "trace_safe_evidence_value_recovered",
+                        },
+                    }
             if hard_deny and action in {ClaimSurfaceAction.ALLOW, ClaimSurfaceAction.CAVEAT}:
                 action = ClaimSurfaceAction.BLOCK
                 decided_by = "surface_policy_hard_deny"
@@ -108,10 +129,57 @@ class ReportSynthesizer:
                         "surface_action": action,
                         "hard_deny_reasons": hard_deny,
                         "decided_by": decided_by,
+                        "rationale": rationale,
+                        "caveat": caveat,
+                        "clinical_reference_ids": clinical_reference_ids,
+                        "debug_payload": debug_payload,
                     }
                 )
             )
         return decisions
+
+    def _calibrated_surface_update(
+        self,
+        plan: AtomicClaimPlan,
+        base: SurfaceDecision,
+        shared_board: SharedEvidenceBoard | None,
+    ) -> tuple[ClaimSurfaceAction, str, str | None] | None:
+        """Recover safe claim-plan outputs without bypassing hard-deny rules."""
+
+        if base.surface_action in {ClaimSurfaceAction.ALLOW, ClaimSurfaceAction.CAVEAT}:
+            return None
+        if not self._has_trace_safe_surface_value(plan, shared_board):
+            return None
+        targets = self._claim_targets(plan, shared_board)
+        if targets & {ClinicalTarget.STATE.value, ClinicalTarget.PROTOCOL.value}:
+            if not self._has_non_unknown_status_value(plan, shared_board):
+                return None
+            return (
+                ClaimSurfaceAction.ALLOW,
+                f"{base.rationale} SurfaceDecision calibrated metadata/status evidence with trace-safe values.",
+                None,
+            )
+        if ClinicalTarget.PDR.value in targets and self._has_plausible_pdr_value(plan, shared_board):
+            return (
+                ClaimSurfaceAction.CAVEAT,
+                f"{base.rationale} SurfaceDecision calibrated plausible PDR evidence to caveated prose.",
+                "Reportable only as caveated structured evidence; clinical reader confirmation may still be required.",
+            )
+        if ClinicalTarget.BACKGROUND_AMPLITUDE.value in targets and self._has_reportable_amplitude_value(plan, shared_board):
+            return (
+                ClaimSurfaceAction.CAVEAT,
+                f"{base.rationale} SurfaceDecision calibrated reportable background amplitude evidence to caveated prose.",
+                "Reportable only as caveated structured evidence; clinical reader confirmation may still be required.",
+            )
+        if targets & {ClinicalTarget.LOCALIZATION.value, ClinicalTarget.EPILEPTIFORM_MORPHOLOGY.value}:
+            if not self._has_safe_spatiomorphology_value(plan, shared_board):
+                return None
+            return (
+                ClaimSurfaceAction.CAVEAT,
+                f"{base.rationale} SurfaceDecision calibrated trace-safe spatiomorphology evidence to caveated prose.",
+                "Reportable only as caveated structured evidence; not a definitive epileptiform or localization interpretation.",
+            )
+        return None
 
     def build_atomic_claim_plan(self, board: EvidenceBoard) -> List[AtomicClaimPlan]:
         """Plan report-surface claims from grouped EvidenceItems.
@@ -353,8 +421,6 @@ class ReportSynthesizer:
             reasons.append("boundary_or_global_frequency_not_reportable")
         if self._looks_like_seizure_claim(plan, text) and not self._has_seizure_specific_evidence(linked_evidence):
             reasons.append("seizure_claim_without_seizure_specific_evidence")
-        if decision.surface_action == ClaimSurfaceAction.DEBUG_ONLY:
-            reasons.append("debug_only_surface_decision")
         return sorted(set(reasons))
 
     def _linked_evidence_items(self, plan: AtomicClaimPlan, shared_board: SharedEvidenceBoard | None) -> list:
@@ -368,10 +434,138 @@ class ReportSynthesizer:
                 continue
         return out
 
+    def _claim_targets(self, plan: AtomicClaimPlan, shared_board: SharedEvidenceBoard | None) -> set[str]:
+        targets = {str(plan.claim_type)}
+        for item in self._linked_evidence_items(plan, shared_board):
+            targets.add(str(getattr(item.clinical_target, "value", item.clinical_target)))
+        for item in plan.surface_safe_values:
+            target = item.get("clinical_target") if isinstance(item, dict) else None
+            if target:
+                targets.add(str(target))
+        return targets
+
+    def _has_trace_safe_surface_value(self, plan: AtomicClaimPlan, shared_board: SharedEvidenceBoard | None) -> bool:
+        if plan.surface_safe_values or plan.must_render_values:
+            return True
+        return any(self._evidence_item_has_reportable_value(item) for item in self._linked_evidence_items(plan, shared_board))
+
+    def _evidence_item_has_reportable_value(self, item: EvidenceItem) -> bool:
+        target = str(getattr(item.clinical_target, "value", item.clinical_target))
+        evidence_type = str(getattr(item.evidence_type, "value", item.evidence_type))
+        if evidence_type not in {"direct", "derived", "metadata"}:
+            return False
+        if target == ClinicalTarget.PDR.value:
+            return self._value_has_plausible_frequency(item.value)
+        if target == ClinicalTarget.BACKGROUND_AMPLITUDE.value:
+            return self._value_has_amplitude_uv(item.value, item.unit)
+        if target in {ClinicalTarget.STATE.value, ClinicalTarget.PROTOCOL.value}:
+            return self._value_has_non_unknown_status(item.value)
+        if target in {ClinicalTarget.LOCALIZATION.value, ClinicalTarget.EPILEPTIFORM_MORPHOLOGY.value}:
+            return self._value_has_safe_spatiomorphology_descriptor(item.value)
+        return False
+
+    def _has_plausible_pdr_value(self, plan: AtomicClaimPlan, shared_board: SharedEvidenceBoard | None) -> bool:
+        for value in self._candidate_values(plan, shared_board, ClinicalTarget.PDR.value):
+            if self._value_has_plausible_frequency(value):
+                return True
+        return False
+
+    def _has_reportable_amplitude_value(self, plan: AtomicClaimPlan, shared_board: SharedEvidenceBoard | None) -> bool:
+        for item in plan.surface_safe_values:
+            if isinstance(item, dict) and str(item.get("clinical_target")) == ClinicalTarget.BACKGROUND_AMPLITUDE.value:
+                if self._value_has_amplitude_uv(item.get("value"), item.get("unit")):
+                    return True
+        for item in self._linked_evidence_items(plan, shared_board):
+            target = str(getattr(item.clinical_target, "value", item.clinical_target))
+            if target == ClinicalTarget.BACKGROUND_AMPLITUDE.value and self._value_has_amplitude_uv(item.value, item.unit):
+                return True
+        return False
+
+    def _has_non_unknown_status_value(self, plan: AtomicClaimPlan, shared_board: SharedEvidenceBoard | None) -> bool:
+        for target in {ClinicalTarget.STATE.value, ClinicalTarget.PROTOCOL.value}:
+            for value in self._candidate_values(plan, shared_board, target):
+                if self._value_has_non_unknown_status(value):
+                    return True
+        return False
+
+    def _has_safe_spatiomorphology_value(self, plan: AtomicClaimPlan, shared_board: SharedEvidenceBoard | None) -> bool:
+        for target in {ClinicalTarget.LOCALIZATION.value, ClinicalTarget.EPILEPTIFORM_MORPHOLOGY.value}:
+            for value in self._candidate_values(plan, shared_board, target):
+                if self._value_has_safe_spatiomorphology_descriptor(value):
+                    return True
+        return False
+
+    def _candidate_values(
+        self,
+        plan: AtomicClaimPlan,
+        shared_board: SharedEvidenceBoard | None,
+        target: str,
+    ) -> list[Any]:
+        values: list[Any] = []
+        for item in plan.surface_safe_values:
+            if isinstance(item, dict) and str(item.get("clinical_target")) == target:
+                values.append(item.get("value"))
+        for item in self._linked_evidence_items(plan, shared_board):
+            item_target = str(getattr(item.clinical_target, "value", item.clinical_target))
+            if item_target == target:
+                values.append(item.value)
+        return values
+
+    def _value_has_plausible_frequency(self, value: Any) -> bool:
+        if not isinstance(value, dict):
+            return False
+        freq = value.get("frequency_hz") or value.get("pdr_frequency_hz")
+        return isinstance(freq, (int, float)) and 8.0 <= float(freq) <= 13.0
+
+    def _value_has_amplitude_uv(self, value: Any, unit: Any) -> bool:
+        if str(unit or "").lower() not in {"uv", "µv"}:
+            return False
+        if isinstance(value, (int, float)):
+            return True
+        if not isinstance(value, dict):
+            return False
+        return any(
+            isinstance(value.get(key), (int, float, dict))
+            for key in (
+                "background_amplitude_uv",
+                "background_amplitude_best_supported_uv",
+                "background_amplitude_typical_uv",
+                "background_amplitude_range_uv",
+            )
+        )
+
+    def _value_has_non_unknown_status(self, value: Any) -> bool:
+        if not isinstance(value, dict):
+            return False
+        for status in value.values():
+            if status is None:
+                continue
+            if str(status).strip().lower() not in {"", "unknown", "not_available", "unavailable", "none"}:
+                return True
+        return False
+
+    def _value_has_safe_spatiomorphology_descriptor(self, value: Any) -> bool:
+        if not isinstance(value, dict):
+            return False
+        pattern = value.get("spatial_pattern")
+        if isinstance(pattern, str) and pattern.strip() and "unknown" not in pattern.lower():
+            return True
+        field_descriptor = value.get("field_descriptor")
+        if isinstance(field_descriptor, str) and "field" in field_descriptor.lower() and "not localizable" not in field_descriptor.lower():
+            return True
+        descriptor = value.get("morphology_descriptor")
+        return descriptor in {
+            "sharp_transient_like",
+            "sharp_wave_like",
+            "spike_wave_like",
+            "generalized_spike_wave_like",
+            "nonspecific_transient_like",
+        }
+
     def _looks_like_boundary_pdr(self, plan: AtomicClaimPlan, text: str) -> bool:
         if "pdr" not in plan.claim_type and "posterior dominant" not in text and "posterior alpha" not in text:
             return False
-        return bool(re.search(r"\b0(?:\\.0)?\\s*[-–]?\\s*\\.?\s*5\\s*hz\\b|\\b0\\.5\\s*hz\\b", text))
+        return bool(re.search(r"\b0(?:\.0)?\s*[-–]?\s*\.?5\s*hz\b|\b0\.5\s*hz\b", text))
 
     def _looks_like_seizure_claim(self, plan: AtomicClaimPlan, text: str) -> bool:
         if "seizure" not in plan.claim_type and "seizure" not in text:
@@ -385,15 +579,32 @@ class ReportSynthesizer:
     def _linked_evidence_is_internal_or_proxy(self, item: EvidenceItem) -> bool:
         target = str(getattr(item.clinical_target, "value", item.clinical_target))
         evidence_type = str(getattr(item.evidence_type, "value", item.evidence_type))
+        safe_value_targets = {
+            ClinicalTarget.PDR.value,
+            ClinicalTarget.BACKGROUND_AMPLITUDE.value,
+            ClinicalTarget.STATE.value,
+            ClinicalTarget.PROTOCOL.value,
+        }
+        if (
+            target in {ClinicalTarget.LOCALIZATION.value, ClinicalTarget.EPILEPTIFORM_MORPHOLOGY.value}
+            and evidence_type in {"direct", "derived"}
+            and self._value_has_safe_spatiomorphology_descriptor(item.value)
+        ):
+            return False
+        text_parts = [
+            target,
+            evidence_type,
+            str(item.unit or ""),
+            str(item.value),
+            str(item.normalized_value),
+        ]
+        # For direct/status evidence, linked measurement ids may include context
+        # features used upstream; do not turn those context ids into surface
+        # hard-deny reasons unless the surfaced value itself is internal.
+        if target not in safe_value_targets or evidence_type not in {"direct", "derived", "metadata"}:
+            text_parts.append(" ".join(item.measurement_ids))
         text = " ".join(
-            [
-                target,
-                evidence_type,
-                str(item.unit or ""),
-                " ".join(item.measurement_ids),
-                str(item.value),
-                str(item.normalized_value),
-            ]
+            text_parts
         ).lower()
         if target in {"event_candidate", "epileptiform_morphology", "localization"}:
             if any(term in text for term in ("candidate", "likelihood", "support", "score", "ratio", "concentration", "localization_label")):

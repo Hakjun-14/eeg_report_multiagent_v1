@@ -16,6 +16,13 @@ _EVENT_CANDIDATE_MEASUREMENTS = {
     "event_train_duration_upper_sec",
     "event_train_duration_distribution_sec",
 }
+_EVENT_WAVEFORM_NUMERIC_MEASUREMENTS = {
+    "event_waveform_amplitude_peak_to_peak_typical_uv",
+    "event_waveform_amplitude_peak_to_peak_range_uv",
+    "event_waveform_dominant_frequency_hz",
+    "event_waveform_duration_typical_sec",
+    "event_waveform_duration_upper_sec",
+}
 _DEBUG_SCORE_MEASUREMENTS = {
     "event_morphology_support_score",
     "epileptiform_candidate_likelihood_score",
@@ -37,6 +44,14 @@ _LOCALIZATION_PROXY_MEASUREMENTS = {
     "event_field_concentration_ratio",
 }
 _MORPHOLOGY_PROXY_MEASUREMENTS = {"event_morphology_proxy_class", "event_morphology_proxy_score_distribution"}
+_LOCALIZATION_V2_MEASUREMENTS = {
+    "event_electrode_maxima_v2",
+    "event_region_v2",
+    "event_laterality_v2",
+    "event_spatial_pattern_v2",
+    "event_field_descriptor_v2",
+}
+_MORPHOLOGY_V2_MEASUREMENTS = {"event_morphology_descriptor_v2"}
 
 
 def build_shared_evidence_board(
@@ -76,26 +91,46 @@ def grouped_evidence_items_from_measurements(measurements: Iterable[MeasurementV
 
 def _measurement_group_key(measurement: MeasurementValue) -> str:
     name = measurement.measurement_name
-    if name in {"pdr_frequency_hz", "pdr_candidate_frequency_hz", "pdr_v2_frequency_hz", "background_reactivity_status"}:
+    if name in {
+        "pdr_frequency_hz",
+        "pdr_candidate_frequency_hz",
+        "pdr_v2_frequency_hz",
+        "background_reactivity_status",
+        "pdr_symmetry_status",
+        "background_organization_status",
+    }:
         return "pdr"
     if name.startswith("pdr_") or name.startswith("background_ap_organization"):
         return "pdr_support_debug"
-    if name in {"background_amplitude_range_uv", "background_amplitude_typical_uv"}:
+    if name in {
+        "background_amplitude_range_uv",
+        "background_amplitude_typical_uv",
+        "background_amplitude_peak_to_peak_typical_uv",
+        "background_amplitude_best_supported_uv",
+    }:
         return "background_amplitude"
-    if name in {"background_dominant_frequency_hz", "slowing_score"}:
+    if name in {"background_dominant_frequency_hz", "slowing_score", "background_slowing_status"}:
         return "background_slowing"
-    if name == "beta_excess_score":
+    if name in {"beta_excess_score", "excess_beta_status"}:
         return "excess_beta"
-    if name.startswith("protocol_state") or name.startswith("state_") or name in {"sleep_architecture_status"}:
+    if name.startswith("protocol_state") or name.startswith("state_") or name.startswith("sleep_architecture"):
         return "state"
     if name.startswith("protocol_") or name in {"hyperventilation_status", "photic_stimulation_status"} or name.endswith("_availability") or name.endswith("_presence"):
         return "protocol"
+    if name in _EVENT_WAVEFORM_NUMERIC_MEASUREMENTS:
+        return "event_waveform_numeric"
     if name in _EVENT_CANDIDATE_MEASUREMENTS:
         return "event_candidate"
+    if name in _LOCALIZATION_V2_MEASUREMENTS:
+        return "localization_v2"
+    if name in _MORPHOLOGY_V2_MEASUREMENTS:
+        return "epileptiform_morphology_v2"
     if name in _LOCALIZATION_PROXY_MEASUREMENTS:
         return "localization"
     if name in _MORPHOLOGY_PROXY_MEASUREMENTS or name in {"event_morphology_support_score", "epileptiform_candidate_likelihood_score"}:
         return "epileptiform_morphology"
+    if name == "electrographic_seizure_pattern_status":
+        return "seizure_pattern_status"
     if "seizure" in name:
         return "seizure_evidence"
     if name.startswith("relative_bandpower_"):
@@ -158,10 +193,18 @@ def _group_classification(
         return ClinicalTarget.PROTOCOL, EvidenceType.METADATA, ClaimSurfaceAction.ALLOW, "state_protocol", [SectionRole.DETAIL.value, SectionRole.BACKGROUND.value]
     if group_key == "event_candidate":
         return ClinicalTarget.EVENT_CANDIDATE, EvidenceType.PROXY, ClaimSurfaceAction.DEBUG_ONLY, "event", []
+    if group_key == "event_waveform_numeric":
+        return ClinicalTarget.EPILEPTIFORM_MORPHOLOGY, EvidenceType.DERIVED, ClaimSurfaceAction.CAVEAT, "event", [SectionRole.EPILEPTIFORM.value, SectionRole.DETAIL.value]
+    if group_key == "localization_v2":
+        return ClinicalTarget.LOCALIZATION, EvidenceType.DERIVED, ClaimSurfaceAction.CAVEAT, "localization", [SectionRole.EPILEPTIFORM.value, SectionRole.DETAIL.value]
+    if group_key == "epileptiform_morphology_v2":
+        return ClinicalTarget.EPILEPTIFORM_MORPHOLOGY, EvidenceType.DERIVED, ClaimSurfaceAction.CAVEAT, "event", [SectionRole.EPILEPTIFORM.value, SectionRole.DETAIL.value]
     if group_key == "localization":
         return ClinicalTarget.LOCALIZATION, EvidenceType.PROXY, ClaimSurfaceAction.DEBUG_ONLY, "localization", []
     if group_key == "epileptiform_morphology":
         return ClinicalTarget.EPILEPTIFORM_MORPHOLOGY, EvidenceType.DEBUG, ClaimSurfaceAction.DEBUG_ONLY, "event", []
+    if group_key == "seizure_pattern_status":
+        return ClinicalTarget.SEIZURE_EVIDENCE, EvidenceType.DERIVED, ClaimSurfaceAction.CAVEAT, "seizure", [SectionRole.EVENTS_SEIZURES.value, SectionRole.DETAIL.value, SectionRole.IMPRESSION.value]
     if group_key == "seizure_evidence":
         return ClinicalTarget.SEIZURE_EVIDENCE, EvidenceType.DEBUG, ClaimSurfaceAction.DEBUG_ONLY, "seizure", []
     return ClinicalTarget.UNKNOWN, EvidenceType.DEBUG, ClaimSurfaceAction.DEBUG_ONLY, "unknown", []
@@ -176,7 +219,13 @@ def _group_value(group_key: str, measurements: list[MeasurementValue]) -> Any:
             "pdr_supported": (freq.metadata.get("pdr_supported") if freq else None),
             "posterior_alpha_ratio": (freq.metadata.get("posterior_alpha_ratio") if freq else None),
             "posterior_anterior_alpha_ratio": (freq.metadata.get("posterior_anterior_alpha_ratio") if freq else None),
-            "symmetry_score": _numeric(by_name.get("pdr_symmetry_score")),
+            "symmetry": _categorical(by_name.get("pdr_symmetry_status")),
+            "symmetry_score": (
+                by_name["pdr_symmetry_status"].metadata.get("posterior_alpha_symmetry_score")
+                if by_name.get("pdr_symmetry_status")
+                else _numeric(by_name.get("pdr_symmetry_score"))
+            ),
+            "organization": _categorical(by_name.get("background_organization_status")),
             "reactivity": _status(by_name.get("background_reactivity_status")),
         }
     if group_key == "pdr_support_debug":
@@ -184,14 +233,56 @@ def _group_value(group_key: str, measurements: list[MeasurementValue]) -> Any:
     if group_key == "background_amplitude":
         range_measurement = by_name.get("background_amplitude_range_uv")
         typical_measurement = by_name.get("background_amplitude_typical_uv")
+        peak_to_peak_measurement = by_name.get("background_amplitude_peak_to_peak_typical_uv")
+        best_supported_measurement = by_name.get("background_amplitude_best_supported_uv")
         return {
             "background_amplitude_range_uv": _range_or_value(range_measurement),
             "background_amplitude_typical_uv": _numeric(typical_measurement),
+            "background_amplitude_peak_to_peak_typical_uv": _numeric(peak_to_peak_measurement),
+            "background_amplitude_best_supported_uv": _numeric(best_supported_measurement),
         }
-    if group_key in {"background_slowing", "excess_beta"}:
-        return {measurement.measurement_name: _range_or_value(measurement) for measurement in measurements}
+    if group_key == "background_slowing":
+        return {
+            measurement.measurement_name: _categorical(measurement) or _range_or_value(measurement)
+            for measurement in measurements
+        }
+    if group_key == "excess_beta":
+        return {
+            measurement.measurement_name: _categorical(measurement) or _range_or_value(measurement)
+            for measurement in measurements
+        }
     if group_key in {"state", "protocol"}:
         return {measurement.measurement_name: _status_or_value(measurement) for measurement in measurements}
+    if group_key == "localization_v2":
+        return {
+            "electrode_maxima": _categorical(by_name.get("event_electrode_maxima_v2")),
+            "region": _categorical(by_name.get("event_region_v2")),
+            "laterality": _categorical(by_name.get("event_laterality_v2")),
+            "spatial_pattern": _categorical(by_name.get("event_spatial_pattern_v2")),
+            "field_descriptor": _categorical(by_name.get("event_field_descriptor_v2")),
+        }
+    if group_key == "epileptiform_morphology_v2":
+        return {
+            "morphology_descriptor": _categorical(by_name.get("event_morphology_descriptor_v2")),
+        }
+    if group_key == "event_waveform_numeric":
+        return {
+            "event_waveform_numeric": {
+                "amplitude_peak_to_peak_typical_uv": _numeric(by_name.get("event_waveform_amplitude_peak_to_peak_typical_uv")),
+                "amplitude_peak_to_peak_range_uv": _range_or_value(by_name.get("event_waveform_amplitude_peak_to_peak_range_uv")),
+                "dominant_frequency_hz": _numeric(by_name.get("event_waveform_dominant_frequency_hz")),
+                "duration_typical_sec": _numeric(by_name.get("event_waveform_duration_typical_sec")),
+                "duration_upper_sec": _range_or_value(by_name.get("event_waveform_duration_upper_sec")),
+                "candidate_context_only": True,
+                "not_seizure_evidence": True,
+            }
+        }
+    if group_key == "seizure_pattern_status":
+        return {
+            "electrographic_seizure_pattern_status": _status(by_name.get("electrographic_seizure_pattern_status")),
+            "seizure_specific_pattern_screen": True,
+            "not_event_candidate_burden": True,
+        }
     if group_key in {"event_candidate", "localization", "epileptiform_morphology", "seizure_evidence"}:
         return {measurement.measurement_name: _debug_value(measurement) for measurement in measurements}
     return {measurement.measurement_name: _debug_value(measurement) for measurement in measurements}
@@ -230,6 +321,10 @@ def _range_or_value(measurement: MeasurementValue | None) -> Any:
 
 def _status(measurement: MeasurementValue | None) -> str | None:
     return measurement.status_value.status.value if measurement is not None and measurement.status_value else None
+
+
+def _categorical(measurement: MeasurementValue | None) -> str | None:
+    return measurement.categorical_value if measurement is not None else None
 
 
 def _status_or_value(measurement: MeasurementValue) -> Any:
@@ -352,6 +447,8 @@ def append_deliberation_evidence(board: SharedEvidenceBoard, deliberation: Agent
 
 def _classify_measurement(measurement: MeasurementValue) -> tuple[EvidenceType, ClinicalTarget, ClaimSurfaceAction, str, List[str]]:
     name = measurement.measurement_name
+    if name in _EVENT_WAVEFORM_NUMERIC_MEASUREMENTS:
+        return EvidenceType.DERIVED, ClinicalTarget.EPILEPTIFORM_MORPHOLOGY, ClaimSurfaceAction.CAVEAT, "Focused event waveform numeric measurement; requires caveated morphology/event context.", [SectionRole.EPILEPTIFORM.value, SectionRole.DETAIL.value]
     if name in _EVENT_CANDIDATE_MEASUREMENTS:
         return EvidenceType.PROXY, ClinicalTarget.EVENT_CANDIDATE, ClaimSurfaceAction.DEBUG_ONLY, "Candidate burden/duration measurements are proxy evidence.", []
     if name in _LOCALIZATION_PROXY_MEASUREMENTS:

@@ -11,6 +11,7 @@ class BackgroundAgent:
         "posterior_dominant_rhythm_spectral_v2",
         "background_organization_proxy",
         "background_unavailable_slot_status",
+        "state_signal_summary",
         "bandpower_summary",
         "amplitude_summary",
     ]

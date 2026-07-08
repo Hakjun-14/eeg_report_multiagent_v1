@@ -8,6 +8,7 @@ from .agent import (
     ToolRequestProposal,
     WeakEvidenceRecord,
 )
+from .clinical_reference import ClinicalReferenceItem
 from .evidence import EvidenceBoard, RuntimeEvidenceBundle
 from .evidence_flow import EvidenceFlowAggregate, EvidenceFlowAuditResult, SlotFlowRecord
 from .final_prose_audit import (
@@ -27,6 +28,7 @@ from .tooling import ToolInvocationRecord
 
 __all__ = [
     "MeasurementValue",
+    "ClinicalReferenceItem",
     "MeasurementContextDependency",
     "MeasurementRole",
     "StatusValue",
