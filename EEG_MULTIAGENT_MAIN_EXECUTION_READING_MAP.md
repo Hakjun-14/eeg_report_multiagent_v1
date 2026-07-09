@@ -1,6 +1,8 @@
-# eeg_report_multiagent_v1 메인 실행 경로와 최소 읽기 파일
+# eeg_report_multiagent_v1 심층 코드 읽기 순서
 
-분석 기준일: 2026-06-16
+분석 기준일: 2026-07-10
+
+> 전체 실행 피겨, 폴더 구조, 옵션·산출물·평가 경로는 [README](README.md)를 먼저 본다. 이 문서는 그다음 실제 코드를 읽을 때의 최소 순서에 집중한다.
 
 ## 결론
 
@@ -52,8 +54,8 @@ eeg-run-session
 - `src/eeg_report_multiagent/cli/run_session.py:354` `run_pipeline()` 호출
 - `src/eeg_report_multiagent/graph/builder.py:88` LangGraph DAG 구성
 - `src/eeg_report_multiagent/graph/builder.py:142` `run_pipeline()`
-- `src/eeg_report_multiagent/graph/nodes.py:135` `load_inputs_node()`
-- `src/eeg_report_multiagent/graph/nodes.py:310` `report_synthesize_node()`
+- `src/eeg_report_multiagent/graph/nodes.py:158` `load_inputs_node()`
+- `src/eeg_report_multiagent/graph/nodes.py:338` `report_synthesize_node()`
 
 ## CELM 실행 흐름
 
@@ -67,8 +69,11 @@ run_celm_split_session.main()
   -> load_celm_split_sample()
   -> study_context.json 생성
   -> subprocess: python -m eeg_report_multiagent.cli.run_session
-  -> CELM-compatible generated_reports_json/txt 생성
-  -> method_audit / section_contract_audit 생성
+  -> EvidenceBoard + AtomicClaimPlan로 CELM LLM section rendering 시도
+     (실패 시 existing plan template fallback)
+  -> celm_generated_report.json 생성
+  -> section_contract_audit / final_prose_audit overwrite / method_audit 생성
+  -> --celm-results-dir 지정 시 generated_reports_json/txt export
 ```
 
 핵심 라인:
@@ -98,7 +103,7 @@ run_celm_split_session.main()
 3. `src/eeg_report_multiagent/io/pkl_reader.py`
 4. `src/eeg_report_multiagent/io/manifest_builder.py`
 5. `src/eeg_report_multiagent/io/report_reader.py`
-6. CELM을 볼 경우 추가: `src/eeg_report_multiagent/io/celm_dataset.py`
+6. `src/eeg_report_multiagent/io/celm_dataset.py` — `io/__init__.py`가 eager import하므로 core import에도 필요
 
 ## 최소 읽기 파일 3단계: Agent/Tool 실행
 
@@ -127,10 +132,12 @@ run_celm_split_session.main()
 7. `src/eeg_report_multiagent/modules/llm_evidence_grouper.py`
 8. `src/eeg_report_multiagent/modules/llm_claim_planner.py`
 9. `src/eeg_report_multiagent/modules/report_synthesizer.py`
-10. `src/eeg_report_multiagent/modules/surface_policy.py`
-11. `src/eeg_report_multiagent/modules/section_router.py`
-12. `src/eeg_report_multiagent/modules/claim_verifier.py`
-13. `src/eeg_report_multiagent/modules/final_prose_auditor.py`
+10. CELM을 볼 경우: `src/eeg_report_multiagent/modules/llm_report_synthesizer.py`
+11. `src/eeg_report_multiagent/modules/surface_policy.py`
+12. `src/eeg_report_multiagent/modules/section_router.py`
+13. `src/eeg_report_multiagent/modules/claim_verifier.py`
+14. `src/eeg_report_multiagent/modules/final_prose_auditor.py`
+15. LLM 경계를 볼 경우: `src/eeg_report_multiagent/llm/openai_adapter.py`
 
 ## 최소 읽기 파일 5단계: Schema
 
@@ -151,11 +158,12 @@ v1은 schema 중심 구조이므로, report 품질을 보려면 schema를 읽어
 
 ```text
 pyproject.toml
+README.md
 src/eeg_report_multiagent/__init__.py
 src/eeg_report_multiagent/cli/__init__.py
 src/eeg_report_multiagent/cli/run_session.py
 src/eeg_report_multiagent/graph/*.py
-src/eeg_report_multiagent/io/{__init__,manifest_builder,pkl_reader,report_reader,session_loader}.py
+src/eeg_report_multiagent/io/*.py
 src/eeg_report_multiagent/agents/*.py
 src/eeg_report_multiagent/tools/**/*.py
 src/eeg_report_multiagent/modules/*.py
@@ -168,8 +176,6 @@ CELM 실행까지 포함하면 아래가 추가된다.
 ```text
 src/eeg_report_multiagent/cli/run_celm_split_session.py
 src/eeg_report_multiagent/cli/run_celm_split_batch.py
-src/eeg_report_multiagent/cli/inspect_celm_split.py
-src/eeg_report_multiagent/io/celm_dataset.py
 src/eeg_report_multiagent/evaluation/method_audit.py
 src/eeg_report_multiagent/evaluation/section_contract_audit.py
 ```
@@ -178,12 +184,12 @@ src/eeg_report_multiagent/evaluation/section_contract_audit.py
 
 1. `src/eeg_report_multiagent/cli/run_session.py:303`부터 읽기
 2. `src/eeg_report_multiagent/graph/builder.py:88`부터 graph 구조 읽기
-3. `src/eeg_report_multiagent/graph/nodes.py:135`부터 node별 state 변환 읽기
+3. `src/eeg_report_multiagent/graph/nodes.py:158`부터 node별 state 변환 읽기
 4. `src/eeg_report_multiagent/modules/background_module.py`와 `event_module.py` 읽기
 5. `src/eeg_report_multiagent/tools/background/signal_tools.py`와 `tools/event/signal_tools.py` 읽기
 6. `src/eeg_report_multiagent/modules/evidence_board.py`와 `evidence_item_adapter.py` 읽기
 7. `src/eeg_report_multiagent/modules/report_synthesizer.py`와 `surface_policy.py` 읽기
-8. CELM을 돌릴 경우 `run_celm_split_session.py`, `run_celm_split_batch.py`, `io/celm_dataset.py` 읽기
+8. CELM을 돌릴 경우 `run_celm_split_session.py`, `run_celm_split_batch.py`, `io/celm_dataset.py`, `modules/llm_report_synthesizer.py` 읽기
 
 ## 현재 확인된 실행상 주의점
 
@@ -192,3 +198,15 @@ src/eeg_report_multiagent/evaluation/section_contract_audit.py
 3. LLM 관련 옵션은 선택형이다: `--enable-llm-evidence-grouping`, `--enable-llm-claim-planning`, `--enable-llm-review`.
 4. `--no-langgraph`를 주면 LangGraph 없이 동일 node 순서의 sequential fallback으로 실행된다.
 5. `modules/__init__.py`가 여러 module을 eager import하므로 core 실행 압축본에는 `modules/*.py` 전체를 넣는 편이 안전하다.
+6. `--monitor`는 sequential fallback을 강제하지 않지만 callback이 연결된 각 node를 monitor용 daemon worker thread에서 실행한다.
+7. `optional_verify`는 임상 재판독이 아니라 claim-evidence ID link integrity 검사다.
+8. `FinalProseAuditor`와 실제 artifact file writing은 graph 밖의 `run_session.py` post-processing이다.
+9. `configs/base.yaml`, `configs/graph.yaml`, `configs/tool_registry.yaml`은 core runtime에서 읽지 않는다. graph와 registry의 기준은 Python 구현이다.
+10. CELM single wrapper는 core 뒤 final section LLM rendering을 항상 시도하고, 실패하면 기존 atomic claim plan의 template rendering으로 fallback한다.
+11. LLM용 `clinical_context`에는 history sanitizer가 적용되지만 parser `note_text`에는 적용되지 않는다. 호출자는 study-context와 deprecated report alias에 GT target text를 넣지 않아야 한다.
+12. Final prose audit 판정은 report를 수정/gate하지 않지만 auditor의 예상치 못한 예외는 CLI를 중단시킬 수 있다.
+13. PKL loader는 `pickle.load()`를 사용하므로 신뢰할 수 있는 processed EEG 파일만 입력해야 한다.
+14. LLM grouping/planning adapter 오류는 core run으로 전파될 수 있고, review는 `local_only`로 fallback한다. CELM final renderer는 template fallback한다.
+15. `ClaimVerifier`는 ClaimRecord field가 아니라 SharedEvidenceBoard의 `claim_evidence_links` map을 읽으며, 현재 unlinked `c_impression_summary`는 `MISSING`으로 기록된다.
+16. CELM wrapper는 final section rendering 뒤 `FinalProseAuditor`를 다시 실행해 core audit JSON을 덮어쓴다.
+17. `FinalProseAuditor`는 최종 SurfaceDecision이 아니라 `AtomicClaimPlan.surface_action`을 기준으로 claim trace를 판정하므로 synthesis calibration 뒤 `surface_policy_violation` false positive가 가능하다.
